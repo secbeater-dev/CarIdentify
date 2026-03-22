@@ -38,7 +38,6 @@
     analyzeForm: document.getElementById("analyze-form"),
     fileInput: document.getElementById("file-input"),
     strictDistance: document.getElementById("strict-distance"),
-    loadSample: document.getElementById("load-sample"),
     status: document.getElementById("status"),
     staysCount: document.getElementById("stays-count"),
     parkingCount: document.getElementById("parking-count"),
@@ -1647,20 +1646,6 @@ function extractGeminiText(payload) {
     }
   }
 
-  async function loadSampleData() {
-    try {
-      setStatus("Loading sample data...", "");
-      const response = await fetch("./sample_input.xlsx", { cache: "no-store" });
-      if (!response.ok) {
-        throw new Error(`Cannot load sample_input.xlsx (HTTP ${response.status})`);
-      }
-      const buffer = await response.arrayBuffer();
-      const rows = await parseWorkbookArrayBuffer(buffer);
-      await analyzeWithRows(rows, "sample_input.xlsx");
-    } catch (error) {
-      setStatus(`Load sample failed: ${error.message}`, "error");
-    }
-  }
 function setActiveView(viewKey) {
     const menuItems = Array.from(document.querySelectorAll(".menu-item"));
     menuItems.forEach((item) => {
@@ -1697,7 +1682,6 @@ function setActiveView(viewKey) {
     });
 
     els.analyzeForm?.addEventListener("submit", handleAnalyzeSubmit);
-    els.loadSample?.addEventListener("click", loadSampleData);
 
     els.toggleTeleport?.addEventListener("click", () => {
       setTeleportVisible(!state.teleportVisible);
