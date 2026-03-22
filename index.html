@@ -1,0 +1,309 @@
+﻿<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>車輛辨識系統</title>
+  <link rel="icon" type="image/png" href="./static/Beater_icon.png">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,500,0,0">
+  <link rel="stylesheet" href="./static/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-head">
+          <img class="brand-icon" src="./static/Beater_icon.png" alt="Beater Icon">
+          <button id="sidebar-toggle" class="sidebar-toggle" type="button" title="摺疊側邊欄">
+            <span class="material-symbols-rounded" aria-hidden="true">left_panel_open</span>
+          </button>
+        </div>
+        <h1>車輛辨識系統</h1>
+        <p class="brand-subtitle"><a href="https://secbeater.com/" target="_blank" rel="noopener noreferrer">Made by SecBeater</a></p>
+        <p class="brand-version">版本：20260322</p>
+      </div>
+
+      <nav class="menu" id="menu">
+        <button class="menu-item active" data-view="map" title="互動地圖">
+          <span class="material-symbols-rounded menu-icon">map</span>
+          <span class="menu-label">互動地圖</span>
+        </button>
+        <button class="menu-item" data-view="stays" title="停車分析（>10分鐘）">
+          <span class="material-symbols-rounded menu-icon">local_parking</span>
+          <span class="menu-label">停車分析（ &gt;10分鐘）</span>
+        </button>
+        <button class="menu-item" data-view="parking" title="停車分析（>60分鐘）">
+          <span class="material-symbols-rounded menu-icon">garage_home</span>
+          <span class="menu-label">停車分析（ &gt;60分鐘）</span>
+        </button>
+        <button class="menu-item" data-view="overnight" title="過夜分析">
+          <span class="material-symbols-rounded menu-icon">nights_stay</span>
+          <span class="menu-label">過夜分析</span>
+        </button>
+        <button class="menu-item" data-view="hotspots" title="熱區分析">
+          <span class="material-symbols-rounded menu-icon">location_searching</span>
+          <span class="menu-label">熱區分析</span>
+        </button>
+        <button class="menu-item" data-view="routine" title="時間分布圖">
+          <span class="material-symbols-rounded menu-icon">schedule</span>
+          <span class="menu-label">時間分布圖</span>
+        </button>
+        <button class="menu-item" data-view="anomalies" title="軌跡異常偵測">
+          <span class="material-symbols-rounded menu-icon">warning</span>
+          <span class="menu-label">軌跡異常偵測</span>
+        </button>
+        <button class="menu-item" data-view="ai" title="AI 分析">
+          <span class="material-symbols-rounded menu-icon">smart_toy</span>
+          <span class="menu-label">AI 分析</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-actions">
+        <button id="export-menu-toggle" class="action-btn primary" disabled title="資料匯出">
+          <span class="material-symbols-rounded action-icon">download</span>
+          <span class="action-label">資料匯出</span>
+        </button>
+        <div id="export-menu" class="export-menu hidden">
+          <label for="export-type">匯出類型</label>
+          <select id="export-type">
+            <option value="stay">停車分析（>10分鐘）</option>
+            <option value="hotspot">熱點統計</option>
+            <option value="validation">驗證配對</option>
+          </select>
+          <button id="export-download" class="action-btn">
+            <span class="material-symbols-rounded action-icon">download_done</span>
+            <span class="action-label">下載</span>
+          </button>
+        </div>
+
+        <div class="music-player">
+          <div class="music-header">
+            <span class="material-symbols-rounded action-icon">music_note</span>
+            <span class="music-header-label">背景音樂</span>
+          </div>
+          <div class="music-video-wrap">
+            <iframe
+              id="sidebar-youtube"
+              src="https://www.youtube.com/embed/sKAnrjRpt40?list=RDsKAnrjRpt40&start_radio=1&rel=0"
+              title="背景音樂 YouTube 播放器"
+              loading="lazy"
+              referrerpolicy="strict-origin-when-cross-origin"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowfullscreen
+            ></iframe>
+          </div>
+          <div class="music-meta">
+            <div class="music-title">YouTube 背景音樂</div>
+            <a
+              class="music-link"
+              href="https://www.youtube.com/watch?v=sKAnrjRpt40&list=RDsKAnrjRpt40&start_radio=1"
+              target="_blank"
+              rel="noopener noreferrer"
+            >在 YouTube 開啟</a>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-panel">
+      <header class="toolbar">
+        <form id="analyze-form" class="controls" enctype="multipart/form-data">
+          <label class="control-group file-input-wrap">
+            <span>資料檔案</span>
+            <input type="file" id="file-input" name="file" accept=".xlsx,.xls,.csv">
+          </label>
+
+          <label class="control-group check-wrap">
+            <span>清洗模式</span>
+            <label class="inline-check">
+              <input type="checkbox" id="strict-distance" name="strict_distance_teleport">
+              嚴格傳送門（距離 > 10km 即剔除）
+            </label>
+          </label>
+
+          <button type="submit" class="run-btn">匯入資料並分析</button>
+          <button type="button" id="load-sample" class="ghost-btn">載入範例</button>
+        </form>
+      </header>
+
+      <div id="status" class="status">請先匯入資料，或點「載入範例」。</div>
+
+      <section class="view" id="view-stays">
+        <h2>停車分析（ &gt;10分鐘）</h2>
+        <div id="stays-count" class="counter"></div>
+        <div id="table-stays" class="table-wrap"></div>
+      </section>
+
+      <section class="view" id="view-parking">
+        <h2>停車分析（ &gt;60分鐘）</h2>
+        <div id="parking-count" class="counter"></div>
+        <div id="table-parking" class="table-wrap"></div>
+      </section>
+
+      <section class="view" id="view-overnight">
+        <h2>過夜分析（停駐 >= 6h 且夜間重疊 >= 1h）</h2>
+        <div id="overnight-count" class="counter"></div>
+        <div id="table-overnight" class="table-wrap"></div>
+      </section>
+
+      <section class="view" id="view-hotspots">
+        <h2>熱區分析（Top 50）</h2>
+        <div class="panel">
+          <h3>熱區統計表（前 50 名）</h3>
+          <div id="table-hotspots" class="table-wrap"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-routine">
+        <h2>時間分布圖</h2>
+        <div class="panel">
+          <h3>每小時車輛辨識數量</h3>
+          <div class="chart-wrap">
+            <canvas id="routine-hour-chart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-anomalies">
+        <h2>軌跡異常偵測</h2>
+        <h3>跨縣市移動斷點（傳送門）</h3>
+        <div id="table-teleport" class="table-wrap compact"></div>
+      </section>
+
+      <section class="view active" id="view-map">
+        <div class="map-header">
+          <div id="map-current-info" class="map-current-info">當前資料：尚未載入</div>
+          <div class="map-title-actions">
+            <button id="toggle-teleport" class="ghost-btn">顯示異常傳送門：關</button>
+            <button id="play-timeline" class="ghost-btn">播放</button>
+            <label class="speed-control">
+              速度
+              <input type="range" id="playback-speed" min="0.5" max="3" step="0.5" value="1">
+              <span id="playback-speed-label">1.0x</span>
+            </label>
+          </div>
+        </div>
+        <div class="timeline-panel">
+          <div class="timeline-row">
+            <label for="timeline-slider">時間滑桿</label>
+            <input type="range" id="timeline-slider" min="0" max="0" value="0" step="1" disabled>
+            <span id="timeline-current">尚未載入軌跡時間</span>
+          </div>
+          <div class="timeline-row two">
+            <label for="timeline-select">時間選項</label>
+            <select id="timeline-select" disabled></select>
+            <label for="timeline-picker">直接指定時間</label>
+            <input type="datetime-local" id="timeline-picker" step="1" disabled>
+          </div>
+        </div>
+        <div id="map" class="map"></div>
+      </section>
+
+      <section class="view" id="view-ai">
+        <h2>AI 分析（Gemini）</h2>
+        <div class="panel ai-panel">
+          <label class="control-group">
+            <span>API 呼叫網址（可自訂）</span>
+            <input
+              type="text"
+              id="ai-endpoint-url"
+              value="https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+              placeholder="可用 {model} 代表模型名稱"
+            >
+            <small id="ai-endpoint-preview" class="endpoint-preview"></small>
+          </label>
+
+          <label class="control-group">
+            <span>Gemini API Key <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">取得我的API KEY</a></span>
+            <input type="password" id="ai-api-key" placeholder="貼上你的 Gemini API Key">
+          </label>
+
+          <label class="control-group">
+            <span>模型（即時讀取）</span>
+            <div class="ai-model-row">
+              <select id="ai-model-select">
+                <option value="" selected disabled>請先輸入 API Key 以載入模型清單</option>
+                <option value="custom">自訂模型</option>
+              </select>
+              <button type="button" id="refresh-models" class="ghost-btn">更新模型</button>
+            </div>
+          </label>
+
+          <label class="control-group">
+            <span>自訂模型名稱（選擇自訂模型時生效）</span>
+            <input type="text" id="ai-model-custom" placeholder="例如: gemini-2.5-flash">
+          </label>
+
+          <label class="control-group">
+            <span>提示詞(Made by SB_Wave)</span>
+            <textarea id="ai-prompt" rows="8" placeholder="輸入你要 AI 分析的提示詞">「角色： 專業刑事交通數據分析師（具備資深偵查、洗錢與毒品案背景）。 任務： 分析 LPR 機車路徑資料，識別停留點、識別日常作息，產出偵查報告與搜索聲請附件。
+
+一、 資料前處理與異常清洗 (Cleaning)
+
+時間格式化：將民國年（YYY/MM/DD HH:MM:SS）統一轉換為西元年（YYYY-MM-DD HH:MM:SS）並依時間排序。
+
+傳送門過濾 (Teleportation Check)：
+
+若相鄰兩筆紀錄平均移動速度 > 150 km/h，或距離相差超過 10 公里，視為車牌誤辨或異常資料，該筆必須排除，不得納入分析。
+
+二、 停留點判定邏輯 (Stay Point Logic - 嚴格修正版)
+
+停留定義：
+
+起始點與結束點之經緯度座標不同，且時間差距 > 10 分鐘。
+
+斷點處理 (關鍵規則)：
+
+若兩筆紀錄時間差 > 6 小時，且期間該車輛在該地點（及周邊 100 公尺內）無重複辨識，必須判定為在該路口（或進入該處死角）持續停留。不得標註為追蹤斷點，應將該時段完整計入停留時間，以增強對象與地點的關聯強度。
+
+時間格式：停留時長一律轉換為「o時o分」格式（例如：24時16分）。
+
+三、 居住地地緣與作息分析 (Investigation Analysis)
+
+地緣比對：輸入對象居住地為【臺北市大同區重慶北路2段51號4樓】。
+
+專用術語：分析報告中，提及返回行為時，一律使用「返回住處」而非「歸府」或「回家」。
+
+作息研判：
+
+出門規律：識別每日第一次離開住處周邊 600 公尺區域的時間與方向。
+
+返回住處規律：識別每日最後一次進入住處周邊並靜止的時間。
+
+長期停放區：識別除住處外，停留時間超過 24 小時的特定地點。
+
+四、 輸出格式要求 (Output)
+
+輸出 1：停留點清單 (CSV 表格)
+
+欄位包含：抵達時間、離開時間、停留時長、行政區、經度、緯度、最接近地址。
+
+輸出 2：熱點統計
+
+列出停留次數最多的前 20 個地點，並統計各點總停留時長。
+
+輸出 3：作息分析概述
+
+條列式說明對象平均出門時間、返回住處時間、活動熱區及偵查建議。
+
+輸出 4：驗證 CSV
+
+依照原始資料順序，將「停留起始列」與「下一列位移點」成對保留，方便逐筆核對。」</textarea>
+          </label>
+
+          <div class="ai-actions">
+            <button id="run-ai-analysis" class="run-btn" disabled>送出 Gemini 分析</button>
+          </div>
+        </div>
+        <pre id="ai-output" class="text-panel large">請先完成資料分析，再填入 API Key 與提示詞。</pre>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="./static/app.js"></script>
+</body>
+</html>
