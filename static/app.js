@@ -611,6 +611,35 @@
       if (hit) selected[std] = hit;
     });
 
+    // Fallback: infer timestamp column from values when header aliases are not reliable.
+    if (!selected.timestamp) {
+      let bestKey = "";
+      let bestScore = -1;
+      for (const key of keys) {
+        let parseOk = 0;
+        let totalNonEmpty = 0;
+        for (const row of sampleRows) {
+          const raw = row?.[key];
+          const text = String(raw ?? "").trim();
+          if (!text) continue;
+          totalNonEmpty += 1;
+          const parsed = parseRocDateTime(text);
+          if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+            parseOk += 1;
+          }
+        }
+        if (totalNonEmpty === 0) continue;
+        const score = parseOk / totalNonEmpty;
+        if (score > bestScore) {
+          bestScore = score;
+          bestKey = key;
+        }
+      }
+      if (bestKey && bestScore >= 0.6) {
+        selected.timestamp = bestKey;
+      }
+    }
+
     const required = ["plate", "timestamp", "lon", "lat"];
     const missing = required.filter((key) => !selected[key]);
     if (missing.length) {
