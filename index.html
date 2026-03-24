@@ -1,8 +1,9 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="strict-origin">
   <title>車輛辨識系統</title>
   <link rel="icon" type="image/png" href="./static/Beater_icon.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
@@ -21,7 +22,6 @@
         </div>
         <h1>車輛辨識系統</h1>
         <p class="brand-subtitle"><a href="https://secbeater.com/" target="_blank" rel="noopener noreferrer">Made by SecBeater</a></p>
-        <p class="brand-version">版本：20260322</p>
       </div>
 
       <nav class="menu" id="menu">
@@ -29,13 +29,9 @@
           <span class="material-symbols-rounded menu-icon">map</span>
           <span class="menu-label">互動地圖</span>
         </button>
-        <button class="menu-item" data-view="stays" title="停車分析（>10分鐘）">
+        <button class="menu-item" data-view="parking" title="停車分析">
           <span class="material-symbols-rounded menu-icon">local_parking</span>
-          <span class="menu-label">停車分析（ &gt;10分鐘）</span>
-        </button>
-        <button class="menu-item" data-view="parking" title="停車分析（>60分鐘）">
-          <span class="material-symbols-rounded menu-icon">garage_home</span>
-          <span class="menu-label">停車分析（ &gt;60分鐘）</span>
+          <span class="menu-label">停車分析</span>
         </button>
         <button class="menu-item" data-view="overnight" title="過夜分析">
           <span class="material-symbols-rounded menu-icon">nights_stay</span>
@@ -67,7 +63,7 @@
         <div id="export-menu" class="export-menu hidden">
           <label for="export-type">匯出類型</label>
           <select id="export-type">
-            <option value="stay">停車分析（>10分鐘）</option>
+            <option value="stay">停車分析（依目前篩選）</option>
             <option value="hotspot">熱點統計</option>
             <option value="validation">驗證配對</option>
           </select>
@@ -85,19 +81,22 @@
           <div class="music-video-wrap">
             <iframe
               id="sidebar-youtube"
-              src="https://www.youtube.com/embed/sKAnrjRpt40?list=RDsKAnrjRpt40&start_radio=1&rel=0"
+              src="https://www.youtube.com/embed/sKAnrjRpt40?rel=0&playsinline=1&modestbranding=1"
               title="背景音樂 YouTube 播放器"
               loading="lazy"
-              referrerpolicy="strict-origin-when-cross-origin"
+              referrerpolicy="strict-origin"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowfullscreen
             ></iframe>
+            <div id="sidebar-youtube-fallback" class="music-fallback hidden">
+              目前環境不支援內嵌 YouTube，請使用下方連結開啟。
+            </div>
           </div>
           <div class="music-meta">
             <div class="music-title">YouTube 背景音樂</div>
             <a
               class="music-link"
-              href="https://www.youtube.com/watch?v=sKAnrjRpt40&list=RDsKAnrjRpt40&start_radio=1"
+              href="https://youtu.be/sKAnrjRpt40?si=YfRNdS30kWktvqWz"
               target="_blank"
               rel="noopener noreferrer"
             >在 YouTube 開啟</a>
@@ -110,8 +109,8 @@
       <header class="toolbar">
         <form id="analyze-form" class="controls" enctype="multipart/form-data">
           <label class="control-group file-input-wrap">
-            <span>資料檔案</span>
-            <input type="file" id="file-input" name="file" accept=".xlsx,.xls,.csv">
+            <span>資料檔案（可多選）</span>
+            <input type="file" id="file-input" name="file" accept=".xlsx,.xls,.csv" multiple>
           </label>
 
           <label class="control-group check-wrap">
@@ -128,20 +127,58 @@
 
       <div id="status" class="status">請先匯入資料。</div>
 
-      <section class="view" id="view-stays">
-        <h2>停車分析（ &gt;10分鐘）</h2>
-        <div id="stays-count" class="counter"></div>
-        <div id="table-stays" class="table-wrap"></div>
-      </section>
-
       <section class="view" id="view-parking">
-        <h2>停車分析（ &gt;60分鐘）</h2>
+        <div class="view-header-row">
+          <h2>停車分析</h2>
+          <div class="parking-inline-controls">
+            <label class="parking-option">
+              <input type="radio" name="parking-duration" value="4-6" id="parking-dur-4-6">
+              4–6 分鐘
+            </label>
+            <label class="parking-option">
+              <input type="radio" name="parking-duration" value="10-60" id="parking-dur-10-60" checked>
+              10–60 分鐘
+            </label>
+            <label class="parking-option">
+              <input type="radio" name="parking-duration" value="60+" id="parking-dur-60">
+              60 分鐘以上
+            </label>
+            <label class="parking-option">
+              <input type="radio" name="parking-duration" value="custom" id="parking-dur-custom">
+              自訂
+            </label>
+            <div class="parking-custom-inline">
+              <input type="number" id="parking-custom-min" min="0" value="10" class="small-input" aria-label="自訂最小分鐘">
+              <span>~</span>
+              <input type="number" id="parking-custom-max" min="0" value="60" class="small-input" aria-label="自訂最大分鐘">
+              <button type="button" id="parking-custom-apply" class="ghost-btn small">套用</button>
+            </div>
+          </div>
+        </div>
         <div id="parking-count" class="counter"></div>
         <div id="table-parking" class="table-wrap"></div>
       </section>
 
       <section class="view" id="view-overnight">
-        <h2>過夜分析（停駐 >= 6h 且夜間重疊 >= 1h）</h2>
+        <div class="view-header-row overnight-header">
+          <h2>停駐時段分析</h2>
+          <div class="overnight-mode-tabs" role="tablist" aria-label="過夜分析模式">
+            <button
+              id="overnight-mode-night"
+              class="overnight-mode-tab is-night is-active"
+              type="button"
+              role="tab"
+              aria-selected="true"
+            >過夜分析（停駐 ≥ 6h 且夜間重疊 ≥ 1h）</button>
+            <button
+              id="overnight-mode-day"
+              class="overnight-mode-tab is-day"
+              type="button"
+              role="tab"
+              aria-selected="false"
+            >日間分析（停駐 ≥ 6h 且日間重疊 ≥ 1h）</button>
+          </div>
+        </div>
         <div id="overnight-count" class="counter"></div>
         <div id="table-overnight" class="table-wrap"></div>
       </section>
@@ -181,6 +218,70 @@
               <input type="range" id="playback-speed" min="0.5" max="3" step="0.5" value="1">
               <span id="playback-speed-label">1.0x</span>
             </label>
+            <button id="map-settings-toggle" class="gear-btn" type="button" title="地圖設定">
+              <span class="material-symbols-rounded">settings</span>
+            </button>
+          </div>
+        </div>
+        <div id="map-settings-panel" class="settings-panel hidden">
+          <h3>地圖顯示設定</h3>
+          <div class="settings-section">
+            <h4>📍 點（標記）</h4>
+            <div class="settings-grid">
+              <label class="settings-item">
+                <span>自訂顏色</span>
+                <input type="color" id="map-point-color" value="#ff0000">
+              </label>
+              <label class="settings-item">
+                <span>顯示編號</span>
+                <input type="checkbox" id="map-point-numbering" checked>
+              </label>
+              <label class="settings-item">
+                <span>顯示詳細資料</span>
+                <input type="checkbox" id="map-point-details">
+              </label>
+              <label class="settings-item">
+                <span>只顯示當前點與前後各一點</span>
+                <input type="checkbox" id="map-focus-window-only">
+              </label>
+              <label class="settings-item">
+                <span>文字方塊透明度</span>
+                <input type="range" id="map-text-opacity" min="0" max="100" value="85" step="5">
+                <span id="map-text-opacity-label">85%</span>
+              </label>
+              <label class="settings-item">
+                <span>文字大小 (px)</span>
+                <input type="number" id="map-text-size" min="8" max="24" value="12" step="1">
+              </label>
+            </div>
+          </div>
+          <div class="settings-section">
+            <h4>〰️ 線條</h4>
+            <div class="settings-grid">
+              <label class="settings-item">
+                <span>自訂顏色</span>
+                <input type="color" id="map-line-color" value="#000000">
+              </label>
+              <label class="settings-item">
+                <span>線條樣式</span>
+                <select id="map-line-style">
+                  <option value="solid">實線</option>
+                  <option value="dashed">虛線</option>
+                  <option value="dashed-arrow">虛線＋小箭頭</option>
+                  <option value="arrow">單箭頭</option>
+                </select>
+              </label>
+              <label class="settings-item">
+                <span>線條粗細</span>
+                <input type="range" id="map-line-weight" min="1" max="10" value="3" step="1">
+                <span id="map-line-weight-label">3px</span>
+              </label>
+              <label class="settings-item">
+                <span>沿道路路線</span>
+                <input type="checkbox" id="map-road-routing">
+                <small>（使用OSRM，需連網）</small>
+              </label>
+            </div>
           </div>
         </div>
         <div class="timeline-panel">

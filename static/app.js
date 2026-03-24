@@ -7,9 +7,36 @@
     lon: 121.5139,
     radiusM: 600
   };
+  const MAP_DEFAULT_VIEW = {
+    lat: 24.4278,
+    lon: 118.3592,
+    zoom: 13
+  };
 
   const GEMINI_ENDPOINT_DEFAULT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
-  const FIRST_OPEN_NOTICE_KEY = "sb-first-open-notice-20260322";
+  const FIRST_OPEN_NOTICE_KEY = "sb-first-open-notice-20260324-update";
+  const MAP_SETTINGS_KEY = "caridentify-map-settings";
+  const PARKING_SETTINGS_KEY = "caridentify-parking-settings";
+  const OVERNIGHT_MODE_NIGHT = "night";
+  const OVERNIGHT_MODE_DAY = "day";
+  const DEFAULT_MAP_SETTINGS = {
+    pointColor: "#ff0000",
+    pointRadius: 6,
+    showPointNumbers: true,
+    showPointDetails: false,
+    focusWindowOnly: false,
+    textOpacity: 85,
+    textSize: 12,
+    lineColor: "#000000",
+    lineStyle: "solid",
+    lineWeight: 3,
+    roadRouting: false
+  };
+  const DEFAULT_PARKING_SETTINGS = {
+    durationCategory: "10-60",
+    customMin: 10,
+    customMax: 60
+  };
   const DEFAULT_AI_PROMPT = `角色： 專業刑事交通數據分析師（具備15年資深偵查、洗錢與毒品案背景）。
 任務： 分析 LPR 汽機車路徑資料，識別停留點、識別日常作息，產出偵查報告與搜索聲請附件。
 
@@ -52,9 +79,13 @@
     teleportVisible: false,
     isPlaying: false,
     playbackToken: 0,
+    routeRequestToken: 0,
     hourChart: null,
     modelsLoading: false,
     modelRefreshToken: 0,
+    overnightMode: OVERNIGHT_MODE_NIGHT,
+    mapSettings: { ...DEFAULT_MAP_SETTINGS },
+    parkingSettings: { ...DEFAULT_PARKING_SETTINGS },
     csvExports: {
       stay: "",
       hotspot: "",
@@ -67,14 +98,20 @@
     views: Array.from(document.querySelectorAll(".view")),
     sidebar: document.getElementById("sidebar"),
     sidebarToggle: document.getElementById("sidebar-toggle"),
+    sidebarYoutube: document.getElementById("sidebar-youtube"),
+    sidebarYoutubeFallback: document.getElementById("sidebar-youtube-fallback"),
     analyzeForm: document.getElementById("analyze-form"),
     fileInput: document.getElementById("file-input"),
     strictDistance: document.getElementById("strict-distance"),
     status: document.getElementById("status"),
-    staysCount: document.getElementById("stays-count"),
     parkingCount: document.getElementById("parking-count"),
+    parkingDurationRadios: Array.from(document.querySelectorAll("input[name='parking-duration']")),
+    parkingCustomMin: document.getElementById("parking-custom-min"),
+    parkingCustomMax: document.getElementById("parking-custom-max"),
+    parkingCustomApply: document.getElementById("parking-custom-apply"),
     overnightCount: document.getElementById("overnight-count"),
-    tableStays: document.getElementById("table-stays"),
+    overnightModeNight: document.getElementById("overnight-mode-night"),
+    overnightModeDay: document.getElementById("overnight-mode-day"),
     tableParking: document.getElementById("table-parking"),
     tableOvernight: document.getElementById("table-overnight"),
     tableHotspots: document.getElementById("table-hotspots"),
@@ -90,6 +127,20 @@
     playTimeline: document.getElementById("play-timeline"),
     playbackSpeed: document.getElementById("playback-speed"),
     playbackSpeedLabel: document.getElementById("playback-speed-label"),
+    mapSettingsToggle: document.getElementById("map-settings-toggle"),
+    mapSettingsPanel: document.getElementById("map-settings-panel"),
+    mapPointColor: document.getElementById("map-point-color"),
+    mapPointNumbering: document.getElementById("map-point-numbering"),
+    mapPointDetails: document.getElementById("map-point-details"),
+    mapFocusWindowOnly: document.getElementById("map-focus-window-only"),
+    mapTextOpacity: document.getElementById("map-text-opacity"),
+    mapTextOpacityLabel: document.getElementById("map-text-opacity-label"),
+    mapTextSize: document.getElementById("map-text-size"),
+    mapLineColor: document.getElementById("map-line-color"),
+    mapLineStyle: document.getElementById("map-line-style"),
+    mapLineWeight: document.getElementById("map-line-weight"),
+    mapLineWeightLabel: document.getElementById("map-line-weight-label"),
+    mapRoadRouting: document.getElementById("map-road-routing"),
     exportMenuToggle: document.getElementById("export-menu-toggle"),
     exportMenu: document.getElementById("export-menu"),
     exportType: document.getElementById("export-type"),
@@ -134,6 +185,143 @@
     };
   }
 
+  function loadStorageJson(key, fallback) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : fallback;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function saveStorageJson(key, value) {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      // Keep app functional if storage is unavailable.
+    }
+  }
+
+  function configureSidebarYoutubeEmbed() {
+    const iframe = els.sidebarYoutube;
+    if (!iframe) return;
+
+    const protocol = String(window.location?.protocol || "").toLowerCase();
+    const isHttpLike = protocol === "http:" || protocol === "https:";
+    if (!isHttpLike) {
+      iframe.classList.add("hidden");
+      els.sidebarYoutubeFallback?.classList.remove("hidden");
+      return;
+    }
+
+    const originRaw = String(window.location?.origin || "").trim();
+    const origin = originRaw && originRaw !== "null" ? originRaw : "https://car.secbeater.com";
+    const url = new URL("https://www.youtube.com/embed/sKAnrjRpt40");
+    url.searchParams.set("rel", "0");
+    url.searchParams.set("playsinline", "1");
+    url.searchParams.set("modestbranding", "1");
+    url.searchParams.set("origin", origin);
+    iframe.src = url.toString();
+    iframe.classList.remove("hidden");
+    els.sidebarYoutubeFallback?.classList.add("hidden");
+  }
+
+  function normalizeMapSettings(raw) {
+    const input = raw && typeof raw === "object" ? raw : {};
+    return {
+      pointColor: /^#[0-9a-f]{6}$/i.test(String(input.pointColor || "")) ? String(input.pointColor) : DEFAULT_MAP_SETTINGS.pointColor,
+      pointRadius: clamp(Number(input.pointRadius) || DEFAULT_MAP_SETTINGS.pointRadius, 2, 24),
+      showPointNumbers: input.showPointNumbers !== false,
+      showPointDetails: Boolean(input.showPointDetails),
+      focusWindowOnly: Boolean(input.focusWindowOnly),
+      textOpacity: clamp(Number(input.textOpacity) || DEFAULT_MAP_SETTINGS.textOpacity, 0, 100),
+      textSize: clamp(Number(input.textSize) || DEFAULT_MAP_SETTINGS.textSize, 8, 24),
+      lineColor: /^#[0-9a-f]{6}$/i.test(String(input.lineColor || "")) ? String(input.lineColor) : DEFAULT_MAP_SETTINGS.lineColor,
+      lineStyle: ["solid", "dashed", "dashed-arrow", "arrow"].includes(String(input.lineStyle || ""))
+        ? String(input.lineStyle)
+        : DEFAULT_MAP_SETTINGS.lineStyle,
+      lineWeight: clamp(Number(input.lineWeight) || DEFAULT_MAP_SETTINGS.lineWeight, 1, 10),
+      roadRouting: Boolean(input.roadRouting)
+    };
+  }
+
+  function normalizeParkingSettings(raw) {
+    const input = raw && typeof raw === "object" ? raw : {};
+    const category = ["4-6", "10-60", "60+", "custom"].includes(String(input.durationCategory || ""))
+      ? String(input.durationCategory)
+      : DEFAULT_PARKING_SETTINGS.durationCategory;
+
+    const customMin = Math.max(0, Number.parseFloat(input.customMin));
+    const customMax = Math.max(0, Number.parseFloat(input.customMax));
+    return {
+      durationCategory: category,
+      customMin: Number.isFinite(customMin) ? customMin : DEFAULT_PARKING_SETTINGS.customMin,
+      customMax: Number.isFinite(customMax) ? customMax : DEFAULT_PARKING_SETTINGS.customMax
+    };
+  }
+
+  function loadUserSettings() {
+    state.mapSettings = normalizeMapSettings(loadStorageJson(MAP_SETTINGS_KEY, DEFAULT_MAP_SETTINGS));
+    state.parkingSettings = normalizeParkingSettings(loadStorageJson(PARKING_SETTINGS_KEY, DEFAULT_PARKING_SETTINGS));
+  }
+
+  function saveMapSettings() {
+    saveStorageJson(MAP_SETTINGS_KEY, state.mapSettings);
+  }
+
+  function saveParkingSettings() {
+    saveStorageJson(PARKING_SETTINGS_KEY, state.parkingSettings);
+  }
+
+  function syncMapSettingsUi() {
+    const settings = state.mapSettings;
+    if (els.mapPointColor) els.mapPointColor.value = settings.pointColor;
+    if (els.mapPointNumbering) els.mapPointNumbering.checked = settings.showPointNumbers;
+    if (els.mapPointDetails) els.mapPointDetails.checked = settings.showPointDetails;
+    if (els.mapFocusWindowOnly) els.mapFocusWindowOnly.checked = settings.focusWindowOnly;
+    if (els.mapTextOpacity) els.mapTextOpacity.value = String(settings.textOpacity);
+    if (els.mapTextSize) els.mapTextSize.value = String(settings.textSize);
+    if (els.mapLineColor) els.mapLineColor.value = settings.lineColor;
+    if (els.mapLineStyle) els.mapLineStyle.value = settings.lineStyle;
+    if (els.mapLineWeight) els.mapLineWeight.value = String(settings.lineWeight);
+    if (els.mapRoadRouting) els.mapRoadRouting.checked = settings.roadRouting;
+
+    if (els.mapTextOpacityLabel) {
+      els.mapTextOpacityLabel.textContent = `${Math.round(settings.textOpacity)}%`;
+    }
+    if (els.mapLineWeightLabel) {
+      els.mapLineWeightLabel.textContent = `${Math.round(settings.lineWeight)}px`;
+    }
+  }
+
+  function syncParkingSettingsUi() {
+    const settings = state.parkingSettings;
+    for (const radio of els.parkingDurationRadios) {
+      radio.checked = radio.value === settings.durationCategory;
+    }
+    if (els.parkingCustomMin) els.parkingCustomMin.value = String(settings.customMin);
+    if (els.parkingCustomMax) els.parkingCustomMax.value = String(settings.customMax);
+  }
+
+  function getParkingDurationRange(settings) {
+    const category = String(settings.durationCategory || "");
+    if (category === "4-6") {
+      return { min: 4, max: 6, label: "4–6 分鐘" };
+    }
+    if (category === "60+") {
+      return { min: 60, max: Number.POSITIVE_INFINITY, label: "60 分鐘以上" };
+    }
+    if (category === "custom") {
+      const min = Math.max(0, Number(settings.customMin) || 0);
+      const maxRaw = Math.max(0, Number(settings.customMax) || 0);
+      const [a, b] = min <= maxRaw ? [min, maxRaw] : [maxRaw, min];
+      return { min: a, max: b, label: `${a}–${b} 分鐘` };
+    }
+    return { min: 10, max: 60, label: "10–60 分鐘" };
+  }
+
   function ensureDefaultAiPrompt() {
     if (!els.aiPrompt) return;
     if (!String(els.aiPrompt.value || "").trim()) {
@@ -169,6 +357,15 @@
         <h3>使用提醒</h3>
         <p>除 AI 功能外，資料均在本地運行，請安心使用。</p>
         <p>有任何需求可以私訊 <a href="https://t.me/secbeater" target="_blank" rel="noopener noreferrer">SecBetaer</a></p>
+        <h4>近期更新（摘要）</h4>
+        <ul class="first-open-changes">
+          <li>支援多檔匯入合併分析；車輛辨識格式會自動略過清洗。</li>
+          <li>停車分析整併，新增 4–6、10–60、60+ 與自訂時長篩選。</li>
+          <li>過夜分析改為「過夜分析 / 日間分析」雙選項切換。</li>
+          <li>地圖新增點線樣式設定、箭頭強化與「當前±1點/線段」顯示。</li>
+          <li>播放時維持使用者縮放比例；未載入資料預設定位金門尚義機場。</li>
+          <li>YouTube 連結已更新，並加入內嵌失敗提示。</li>
+        </ul>
         <button type="button" class="run-btn first-open-close" data-action="close">我知道了</button>
       </div>
     `;
@@ -312,6 +509,28 @@
     return total;
   }
 
+  function overlapDayHours(start, end) {
+    if (!(start instanceof Date) || !(end instanceof Date)) return 0;
+    if (end <= start) return 0;
+
+    let cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, 0, 0, 0);
+    const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1, 0, 0, 0, 0);
+    let total = 0;
+
+    while (cursor < endDay) {
+      const dayStart = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), 6, 0, 0, 0);
+      const dayEnd = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), 22, 0, 0, 0);
+      const left = Math.max(start.getTime(), dayStart.getTime());
+      const right = Math.min(end.getTime(), dayEnd.getTime());
+      if (right > left) {
+        total += (right - left) / 3600000;
+      }
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1, 0, 0, 0, 0);
+    }
+
+    return total;
+  }
+
   function normalizeHeaderKey(value) {
     return String(value ?? "")
       .trim()
@@ -323,12 +542,31 @@
     return {
       id: ["編號", "id", "serial", "序號"],
       plate: ["車號", "車牌", "plate", "車牌號碼"],
-      timestamp: ["時間", "time", "timestamp", "日期時間", "辨識時間"],
+      timestamp: ["時間", "time", "timestamp", "日期時間", "辨識時間", "偵測日期"],
       lon: ["經度", "longitude", "lon", "lng", "x"],
       lat: ["緯度", "latitude", "lat", "y"],
-      source: ["來源", "縣市", "source", "city", "行政區"],
-      note: ["備註", "地址", "路口", "location", "place", "備考"]
+      source: ["來源", "縣市", "source", "city", "行政區", "國道系統", "行進方向", "門架名稱"],
+      note: ["備註", "地址", "路口", "location", "place", "備考", "門架名稱", "國道系統", "行進方向"]
     };
+  }
+
+  function detectDatasetFormat(rows) {
+    const sourceRows = Array.isArray(rows) ? rows : [];
+    const keys = [];
+    const seen = new Set();
+    for (const row of sourceRows.slice(0, 30)) {
+      for (const key of Object.keys(row || {})) {
+        if (!seen.has(key)) {
+          seen.add(key);
+          keys.push(normalizeHeaderKey(key));
+        }
+      }
+    }
+    const has = (name) => keys.includes(normalizeHeaderKey(name));
+    if (has("偵測日期") && has("門架名稱") && (has("eTag序號") || has("國道系統") || has("車牌號碼"))) {
+      return "vehicle_recognition";
+    }
+    return "generic";
   }
 
   function detectColumns(rows) {
@@ -535,8 +773,10 @@
 
   function analyzeRecords(rawRows, options = {}) {
     const strictDistanceTeleport = Boolean(options.strictDistanceTeleport);
+    const hasNormalizedInput = Array.isArray(options.normalizedRows);
+    const skipCleaning = Boolean(options.skipCleaning);
 
-    let normalized = normalizeRows(rawRows);
+    let normalized = hasNormalizedInput ? options.normalizedRows.slice() : normalizeRows(rawRows);
     normalized.sort((a, b) => {
       const t = a.timestamp.getTime() - b.timestamp.getTime();
       if (t !== 0) return t;
@@ -590,6 +830,11 @@
     for (let i = 1; i < work.length; i += 1) {
       const curr = work[i];
       const dtHour = (curr.timestamp.getTime() - prev.timestamp.getTime()) / 3600000;
+      if (skipCleaning) {
+        kept.push(curr);
+        prev = curr;
+        continue;
+      }
       if (dtHour <= 0) {
         anomalies.push({
           type: "time_reverse",
@@ -656,10 +901,11 @@
         distance_m: Number(distM.toFixed(1))
       });
 
-      if (dtMin <= 10) continue;
+      if (dtMin <= 4) continue;
       if (distM < 5) continue;
 
       const nightHours = overlapNightHours(a.timestamp, b.timestamp);
+      const dayHours = overlapDayHours(a.timestamp, b.timestamp);
       const stay = {
         start_id: a.id,
         next_id: b.id,
@@ -673,8 +919,10 @@
         closest_address: a.note || a.source || "未提供",
         distance_to_next_m: Number(distM.toFixed(1)),
         is_breakpoint_6h: dtMin >= 360,
+        day_overlap_h: Number(dayHours.toFixed(2)),
         night_overlap_h: Number(nightHours.toFixed(2)),
-        is_overnight: dtMin >= 360 && nightHours >= 1.0
+        is_overnight: dtMin >= 360 && nightHours >= 1.0,
+        is_daytime_long_stay: dtMin >= 360 && dayHours >= 1.0
       };
 
       if (dtMin >= 1440) {
@@ -684,7 +932,7 @@
       } else if (dtMin >= 60) {
         stay.stay_type = "停留點(1-6h)";
       } else {
-        stay.stay_type = "停留點(>10m)";
+        stay.stay_type = "停留點(>4m)";
       }
 
       stays.push(stay);
@@ -706,6 +954,7 @@
       clean_records: clean.length,
       teleportation_removed: teleportations.length,
       invalid_coord_removed: invalidCoordRows.length,
+      cleaning_skipped: skipCleaning,
       stay_records: stays.length,
       parking_records: parking60.length,
       overnight_records: overnight.length,
@@ -741,6 +990,8 @@
         duration_hhmm: s.duration_hhmm,
         stay_type: s.stay_type,
         is_overnight: s.is_overnight,
+        day_overlap_h: s.day_overlap_h,
+        night_overlap_h: s.night_overlap_h,
         address: s.closest_address,
         area: s.area
       })),
@@ -807,10 +1058,10 @@
       }
     };
   }
-function renderTable(container, rows, columns) {
+  function renderTable(container, rows, columns) {
     if (!container) return;
     if (!rows || rows.length === 0) {
-      container.innerHTML = '<div class="empty">?∟???/div>';
+      container.innerHTML = '<div class="empty">目前無資料</div>';
       return;
     }
 
@@ -833,6 +1084,70 @@ function renderTable(container, rows, columns) {
         <tbody>${bodyHtml}</tbody>
       </table>
     `;
+  }
+
+  function getOvernightRowsByMode(stays, mode) {
+    const source = Array.isArray(stays) ? stays : [];
+    if (mode === OVERNIGHT_MODE_DAY) {
+      return source.filter((s) => Number(s.duration_min) >= 360 && Number(s.day_overlap_h) >= 1);
+    }
+    return source.filter((s) => Number(s.duration_min) >= 360 && Number(s.night_overlap_h) >= 1);
+  }
+
+  function updateOvernightModeUi() {
+    const isDay = state.overnightMode === OVERNIGHT_MODE_DAY;
+    if (els.overnightModeNight) {
+      const active = !isDay;
+      els.overnightModeNight.classList.toggle("is-active", active);
+      els.overnightModeNight.setAttribute("aria-selected", active ? "true" : "false");
+    }
+    if (els.overnightModeDay) {
+      const active = isDay;
+      els.overnightModeDay.classList.toggle("is-active", active);
+      els.overnightModeDay.setAttribute("aria-selected", active ? "true" : "false");
+    }
+  }
+
+  function renderOvernightView(result) {
+    const overnightRows = getOvernightRowsByMode(result?.stays || [], state.overnightMode);
+    const overlapColumn = state.overnightMode === OVERNIGHT_MODE_DAY
+      ? { key: "day_overlap_h", label: "日間重疊(小時)" }
+      : { key: "night_overlap_h", label: "夜間重疊(小時)" };
+
+    if (els.overnightCount) {
+      els.overnightCount.textContent = `筆數：${overnightRows.length}`;
+    }
+    renderTable(els.tableOvernight, overnightRows, [
+      { key: "arrive_time", label: "抵達時間" },
+      { key: "leave_time", label: "離開時間" },
+      { key: "duration_hhmm", label: "停留時長" },
+      overlapColumn,
+      { key: "area", label: "行政區" },
+      { key: "closest_address", label: "最接近地址" }
+    ]);
+    updateOvernightModeUi();
+  }
+
+  function renderParkingView(result) {
+    const stays = Array.isArray(result?.stays) ? result.stays : [];
+    const range = getParkingDurationRange(state.parkingSettings);
+    const rows = stays.filter((row) => {
+      const duration = Number(row.duration_min);
+      if (!Number.isFinite(duration)) return false;
+      return duration >= range.min && duration <= range.max;
+    });
+
+    if (els.parkingCount) {
+      els.parkingCount.textContent = `筆數：${rows.length}（篩選：${range.label}）`;
+    }
+    renderTable(els.tableParking, rows, [
+      { key: "arrive_time", label: "抵達時間" },
+      { key: "leave_time", label: "離開時間" },
+      { key: "duration_hhmm", label: "停留時長" },
+      { key: "area", label: "行政區" },
+      { key: "closest_address", label: "最接近地址" },
+      { key: "stay_type", label: "類型" }
+    ]);
   }
 
   function renderHourlyChart(hourlyCounts) {
@@ -893,7 +1208,7 @@ function renderTable(container, rows, columns) {
   function initMapIfNeeded() {
     if (state.map || !els.map || typeof L === "undefined") return;
 
-    state.map = L.map(els.map, { preferCanvas: true }).setView([HOME.lat, HOME.lon], 12);
+    state.map = L.map(els.map, { preferCanvas: true }).setView([MAP_DEFAULT_VIEW.lat, MAP_DEFAULT_VIEW.lon], MAP_DEFAULT_VIEW.zoom);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap"
@@ -901,12 +1216,14 @@ function renderTable(container, rows, columns) {
 
     state.layers.trackLine = L.polyline([], { color: "#f3f3f3", weight: 3, opacity: 0.9 }).addTo(state.map);
     state.layers.trackDots = L.layerGroup().addTo(state.map);
+    state.layers.trackLabels = L.layerGroup().addTo(state.map);
+    state.layers.trackArrows = L.layerGroup().addTo(state.map);
     state.layers.stays = L.layerGroup().addTo(state.map);
     state.layers.hotspots = L.layerGroup().addTo(state.map);
     state.layers.home = L.layerGroup().addTo(state.map);
     state.layers.teleport = L.layerGroup();
 
-    state.currentMarker = L.circleMarker([HOME.lat, HOME.lon], {
+    state.currentMarker = L.circleMarker([MAP_DEFAULT_VIEW.lat, MAP_DEFAULT_VIEW.lon], {
       radius: 8,
       color: "#ffffff",
       fillColor: "#000000",
@@ -952,34 +1269,212 @@ function renderTable(container, rows, columns) {
     }
   }
 
+  function getLineDashArray(lineStyle) {
+    if (lineStyle === "dashed" || lineStyle === "dashed-arrow") {
+      return "8 8";
+    }
+    return null;
+  }
+
+  function getSegmentAngle(fromLatLng, toLatLng) {
+    const dy = toLatLng[0] - fromLatLng[0];
+    const dx = toLatLng[1] - fromLatLng[1];
+    return Math.atan2(dy, dx) * (180 / Math.PI);
+  }
+
+  function createTrackArrowIcon(angleDeg, color) {
+    return L.divIcon({
+      className: "map-arrow-icon",
+      html: `<span style="--arrow-rotation:${angleDeg}deg;--arrow-color:${color};"></span>`,
+      iconSize: [16, 16],
+      iconAnchor: [8, 8]
+    });
+  }
+
+  function getRenderedTrackIndices(trackLength, currentIndex, mapSettings) {
+    if (trackLength <= 0) return [];
+
+    if (mapSettings.focusWindowOnly) {
+      const center = clamp(currentIndex, 0, trackLength - 1);
+      const from = Math.max(0, center - 1);
+      const to = Math.min(trackLength - 1, center + 1);
+      const indices = [];
+      for (let i = from; i <= to; i += 1) {
+        indices.push(i);
+      }
+      return indices;
+    }
+
+    const sampleStep = trackLength > 800 ? 10 : 4;
+    const out = [];
+    for (let i = 0; i < trackLength; i += 1) {
+      if (i % sampleStep !== 0 && i !== 0 && i !== trackLength - 1) continue;
+      out.push(i);
+    }
+    return out;
+  }
+
+  function getFocusWindowTrackPoints(mapSettings) {
+    if (!Array.isArray(state.track) || !state.track.length) return [];
+    if (!mapSettings.focusWindowOnly) {
+      return state.track.slice();
+    }
+    const indices = getRenderedTrackIndices(state.track.length, state.currentTrackIndex, mapSettings);
+    return indices
+      .map((idx) => state.track[idx])
+      .filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lon));
+  }
+
+  function getFocusWindowTrackLatLngs(mapSettings) {
+    return getFocusWindowTrackPoints(mapSettings).map((p) => [p.lat, p.lon]);
+  }
+
+  function renderTrackLineByCurrentWindow(mapSettings) {
+    const latLngs = getFocusWindowTrackLatLngs(mapSettings);
+    state.layers.trackLine.setLatLngs(latLngs);
+    renderTrackArrows(latLngs, mapSettings);
+  }
+
+  function scheduleRoadFollowingForCurrentView(mapSettings, requestToken) {
+    if (!mapSettings.roadRouting) return;
+    const routePoints = mapSettings.focusWindowOnly ? getFocusWindowTrackPoints(mapSettings) : state.track;
+    scheduleRoadFollowingTrack(routePoints, mapSettings, requestToken);
+  }
+
+  function renderTrackPointMarkers(mapSettings) {
+    state.layers.trackDots?.clearLayers();
+    state.layers.trackLabels?.clearLayers();
+    if (!Array.isArray(state.track) || !state.track.length) return;
+
+    const indices = getRenderedTrackIndices(state.track.length, state.currentTrackIndex, mapSettings);
+    for (const idx of indices) {
+      const p = state.track[idx];
+      if (!p) continue;
+      const isCurrent = idx === state.currentTrackIndex;
+      const marker = L.circleMarker([p.lat, p.lon], {
+        radius: isCurrent ? mapSettings.pointRadius + 1.5 : mapSettings.pointRadius,
+        color: mapSettings.pointColor,
+        fillColor: mapSettings.pointColor,
+        fillOpacity: isCurrent ? 0.72 : 0.45,
+        weight: isCurrent ? 1.9 : 1.3
+      });
+      marker.bindPopup(`<b>${escapeHtml(p.time)}</b><br>${escapeHtml(p.address || p.area || "未提供")}`);
+
+      if (mapSettings.showPointDetails) {
+        const detailHtml = `<span class="map-point-detail" style="background:rgba(0,0,0,${mapSettings.textOpacity / 100});font-size:${mapSettings.textSize}px;">${escapeHtml(`${idx + 1}. ${p.time}`)}</span>`;
+        marker.bindTooltip(detailHtml, {
+          permanent: true,
+          direction: "top",
+          offset: [0, -(mapSettings.pointRadius + 6)],
+          className: "map-point-detail-tooltip"
+        });
+      }
+      marker.addTo(state.layers.trackDots);
+
+      if (mapSettings.showPointNumbers && state.layers.trackLabels) {
+        const icon = L.divIcon({
+          className: "map-point-number-icon",
+          html: `<span style="border-color:${mapSettings.pointColor};color:${mapSettings.pointColor};">${idx + 1}</span>`,
+          iconSize: [26, 26],
+          iconAnchor: [13, 13]
+        });
+        L.marker([p.lat, p.lon], { icon, interactive: false, keyboard: false }).addTo(state.layers.trackLabels);
+      }
+    }
+  }
+
+  function renderTrackArrows(trackLatLngs, mapSettings) {
+    if (!state.layers.trackArrows) return;
+    state.layers.trackArrows.clearLayers();
+
+    if (!Array.isArray(trackLatLngs) || trackLatLngs.length < 2) return;
+    const lineStyle = mapSettings.lineStyle;
+    if (lineStyle !== "arrow" && lineStyle !== "dashed-arrow") return;
+
+    if (lineStyle === "arrow") {
+      const from = trackLatLngs[trackLatLngs.length - 2];
+      const to = trackLatLngs[trackLatLngs.length - 1];
+      const angle = getSegmentAngle(from, to);
+      L.marker(to, { icon: createTrackArrowIcon(angle, mapSettings.lineColor), interactive: false }).addTo(state.layers.trackArrows);
+      return;
+    }
+
+    const step = Math.max(2, Math.floor(trackLatLngs.length / 42));
+    for (let i = step; i < trackLatLngs.length; i += step) {
+      const from = trackLatLngs[Math.max(0, i - 1)];
+      const to = trackLatLngs[i];
+      const angle = getSegmentAngle(from, to);
+      L.marker(to, { icon: createTrackArrowIcon(angle, mapSettings.lineColor), interactive: false }).addTo(state.layers.trackArrows);
+    }
+  }
+
+  async function fetchRoadFollowingTrack(track) {
+    if (!Array.isArray(track) || track.length < 2) return null;
+
+    const maxPoints = 80;
+    const step = Math.max(1, Math.ceil(track.length / maxPoints));
+    const sampled = track.filter((_, idx) => idx === 0 || idx === track.length - 1 || idx % step === 0);
+    if (sampled.length < 2) return null;
+
+    const coordText = sampled.map((p) => `${Number(p.lon).toFixed(6)},${Number(p.lat).toFixed(6)}`).join(";");
+    const endpoint = `https://router.project-osrm.org/route/v1/driving/${coordText}?overview=full&geometries=geojson`;
+
+    const response = await fetch(endpoint, { method: "GET" });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const coords = payload?.routes?.[0]?.geometry?.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2) return null;
+    return coords
+      .filter((item) => Array.isArray(item) && item.length >= 2)
+      .map((item) => [Number(item[1]), Number(item[0])])
+      .filter((item) => Number.isFinite(item[0]) && Number.isFinite(item[1]));
+  }
+
+  function scheduleRoadFollowingTrack(track, mapSettings, requestToken) {
+    if (!mapSettings.roadRouting) return;
+
+    fetchRoadFollowingTrack(track)
+      .then((routeLatLngs) => {
+        if (requestToken !== state.routeRequestToken) return;
+        if (!Array.isArray(routeLatLngs) || routeLatLngs.length < 2) return;
+        state.layers.trackLine.setLatLngs(routeLatLngs);
+        renderTrackArrows(routeLatLngs, mapSettings);
+      })
+      .catch(() => {
+        // Fall back to straight polyline silently.
+      });
+  }
+
   function renderMap(payload) {
     initMapIfNeeded();
     if (!state.map) return;
 
     state.layers.trackLine.setLatLngs([]);
     state.layers.trackDots.clearLayers();
+    state.layers.trackLabels?.clearLayers();
+    state.layers.trackArrows?.clearLayers();
     state.layers.stays.clearLayers();
     state.layers.hotspots.clearLayers();
     state.layers.home.clearLayers();
     state.layers.teleport.clearLayers();
 
-    state.track = Array.isArray(payload.track) ? payload.track : [];
-    const trackLatLngs = state.track.map((p) => [p.lat, p.lon]);
-    state.layers.trackLine.setLatLngs(trackLatLngs);
-
-    const sampleStep = state.track.length > 800 ? 10 : 4;
-    state.track.forEach((p, idx) => {
-      if (idx % sampleStep !== 0 && idx !== 0 && idx !== state.track.length - 1) return;
-      const marker = L.circleMarker([p.lat, p.lon], {
-        radius: 3,
-        color: "#bbbbbb",
-        fillColor: "#ffffff",
-        fillOpacity: 0.8,
-        weight: 1
-      });
-      marker.bindPopup(`<b>${escapeHtml(p.time)}</b><br>${escapeHtml(p.address || p.area || "未提供")}`);
-      marker.addTo(state.layers.trackDots);
+    const mapSettings = normalizeMapSettings(state.mapSettings);
+    state.mapSettings = mapSettings;
+    state.layers.trackLine.setStyle({
+      color: mapSettings.lineColor,
+      weight: mapSettings.lineWeight,
+      opacity: 0.95,
+      dashArray: getLineDashArray(mapSettings.lineStyle)
     });
+
+    state.track = Array.isArray(payload.track) ? payload.track : [];
+    state.currentTrackIndex = 0;
+    const trackLatLngs = state.track.map((p) => [p.lat, p.lon]);
+    state.routeRequestToken += 1;
+    const routeToken = state.routeRequestToken;
+    renderTrackLineByCurrentWindow(mapSettings);
+    scheduleRoadFollowingForCurrentView(mapSettings, routeToken);
+    renderTrackPointMarkers(mapSettings);
 
     for (const s of payload.stays || []) {
       const marker = L.circleMarker([s.lat, s.lon], {
@@ -1066,7 +1561,7 @@ function renderTable(container, rows, columns) {
     if (trackLatLngs.length) {
       state.map.fitBounds(trackLatLngs, { padding: [40, 40], maxZoom: 16 });
     } else {
-      state.map.setView([HOME.lat, HOME.lon], 12);
+      state.map.setView([MAP_DEFAULT_VIEW.lat, MAP_DEFAULT_VIEW.lon], MAP_DEFAULT_VIEW.zoom);
     }
 
     setTeleportVisible(false);
@@ -1141,7 +1636,7 @@ function setupTimelineControls(track) {
 
   function focusMapToTrackPoint(point) {
     if (!state.map || !point) return Promise.resolve();
-    const zoom = Math.max(state.map.getZoom(), 16);
+    const zoom = state.map.getZoom();
     return new Promise((resolve) => {
       let done = false;
       const finish = () => {
@@ -1183,6 +1678,14 @@ function setupTimelineControls(track) {
     if (state.currentMarker) {
       state.currentMarker.setLatLng([point.lat, point.lon]);
       state.currentMarker.bindPopup(`<b>${escapeHtml(point.time)}</b><br>${escapeHtml(point.address || point.area || "未提供")}`);
+    }
+
+    if (state.mapSettings.focusWindowOnly) {
+      state.routeRequestToken += 1;
+      const routeToken = state.routeRequestToken;
+      renderTrackLineByCurrentWindow(state.mapSettings);
+      scheduleRoadFollowingForCurrentView(state.mapSettings, routeToken);
+      renderTrackPointMarkers(state.mapSettings);
     }
 
     if (focus) {
@@ -1241,43 +1744,8 @@ function setupTimelineControls(track) {
     state.csvExports.hotspot = result.exports.hotspot_csv;
     state.csvExports.validation = result.exports.validation_csv;
 
-    if (els.staysCount) {
-      els.staysCount.textContent = `筆數：${result.stays.length}`;
-    }
-    if (els.parkingCount) {
-      els.parkingCount.textContent = `筆數：${result.parking_60.length}`;
-    }
-    if (els.overnightCount) {
-      els.overnightCount.textContent = `筆數：${result.overnight.length}`;
-    }
-
-    renderTable(els.tableStays, result.stays, [
-      { key: "arrive_time", label: "抵達時間" },
-      { key: "leave_time", label: "離開時間" },
-      { key: "duration_hhmm", label: "停留時長" },
-      { key: "area", label: "行政區" },
-      { key: "lon", label: "經度" },
-      { key: "lat", label: "緯度" },
-      { key: "closest_address", label: "最接近地址" },
-      { key: "stay_type", label: "類型" }
-    ]);
-
-    renderTable(els.tableParking, result.parking_60, [
-      { key: "arrive_time", label: "抵達時間" },
-      { key: "leave_time", label: "離開時間" },
-      { key: "duration_hhmm", label: "停留時長" },
-      { key: "area", label: "行政區" },
-      { key: "closest_address", label: "最接近地址" }
-    ]);
-
-    renderTable(els.tableOvernight, result.overnight, [
-      { key: "arrive_time", label: "抵達時間" },
-      { key: "leave_time", label: "離開時間" },
-      { key: "duration_hhmm", label: "停留時長" },
-      { key: "night_overlap_h", label: "夜間重疊(小時)" },
-      { key: "area", label: "行政區" },
-      { key: "closest_address", label: "最接近地址" }
-    ]);
+    renderParkingView(result);
+    renderOvernightView(result);
 
     renderTable(els.tableHotspots, result.hotspots, [
       { key: "rank", label: "排名" },
@@ -1319,8 +1787,11 @@ function setupTimelineControls(track) {
     const summary = result.summary;
     const sourceText = sourceLabel ? `來源 ${sourceLabel}；` : "";
     const swappedNote = summary.coordinate_swapped_fixed ? "（經緯度已自動修正）" : "";
+    const cleaningText = summary.cleaning_skipped
+      ? "資料清洗：已略過（車輛辨識格式）"
+      : `傳送門剔除 ${summary.teleportation_removed} 筆`;
     setStatus(
-      `${sourceText}車牌 ${summary.plate_display}；原始 ${summary.raw_records} 筆，清洗後 ${summary.clean_records} 筆；傳送門剔除 ${summary.teleportation_removed} 筆${swappedNote}`,
+      `${sourceText}車牌 ${summary.plate_display}；原始 ${summary.raw_records} 筆，分析樣本 ${summary.clean_records} 筆；${cleaningText}${swappedNote}`,
       "success"
     );
   }
@@ -1341,8 +1812,23 @@ function downloadTextFile(filename, text, mimeType) {
     const type = els.exportType.value;
     const now = new Date();
     const stamp = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}_${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
-    if (type === "stay" && state.csvExports.stay) {
-      downloadTextFile(`stay_over_10m_${stamp}.csv`, state.csvExports.stay, "text/csv;charset=utf-8;");
+    if (type === "stay" && state.analysis) {
+      const range = getParkingDurationRange(state.parkingSettings);
+      const rows = (state.analysis.stays || [])
+        .filter((row) => Number(row.duration_min) >= range.min && Number(row.duration_min) <= range.max)
+        .map((row) => ({
+          arrive_time: row.arrive_time,
+          leave_time: row.leave_time,
+          duration: row.duration_hhmm,
+          area: row.area,
+          lon: row.lon,
+          lat: row.lat,
+          address: row.closest_address,
+          type: row.stay_type
+        }));
+      const csv = rowsToCsv(rows, ["arrive_time", "leave_time", "duration", "area", "lon", "lat", "address", "type"]);
+      const rangeTag = Number.isFinite(range.max) ? `${range.min}-${range.max}m` : `${range.min}m_plus`;
+      downloadTextFile(`parking_${rangeTag}_${stamp}.csv`, csv, "text/csv;charset=utf-8;");
       return;
     }
     if (type === "hotspot" && state.csvExports.hotspot) {
@@ -1353,7 +1839,7 @@ function downloadTextFile(filename, text, mimeType) {
       downloadTextFile(`validation_pairs_${stamp}.csv`, state.csvExports.validation, "text/csv;charset=utf-8;");
       return;
     }
-    setStatus("No export data yet. Please run analysis first.", "error");
+    setStatus("尚無可匯出資料，請先完成分析。", "error");
   }
 
   function getCurrentAiModel() {
@@ -1723,29 +2209,118 @@ function extractGeminiText(payload) {
     throw new Error("Worksheet has no rows.");
   }
 
-  async function analyzeWithRows(rows, sourceLabel) {
+  async function analyzeWithRows(rows, sourceLabel, options = {}) {
     stopPlayback();
-    setStatus("Analyzing data...", "");
+    setStatus("分析中...", "");
     const strict = Boolean(els.strictDistance?.checked);
-    const result = analyzeRecords(rows, { strictDistanceTeleport: strict });
+    const result = analyzeRecords(rows, {
+      strictDistanceTeleport: strict,
+      normalizedRows: options.rowsNormalized ? rows : undefined,
+      skipCleaning: Boolean(options.skipCleaning)
+    });
     renderResult(result, sourceLabel);
   }
 
   async function handleAnalyzeSubmit(event) {
     event.preventDefault();
-    const file = els.fileInput?.files?.[0];
-    if (!file) {
-      setStatus("Please choose a file.", "error");
+    const files = Array.from(els.fileInput?.files || []);
+    if (!files.length) {
+      setStatus("請先選擇至少 1 個檔案。", "error");
       return;
     }
 
     try {
-      const buffer = await file.arrayBuffer();
-      const rows = await parseWorkbookArrayBuffer(buffer);
-      await analyzeWithRows(rows, file.name);
+      setStatus(`正在載入 ${files.length} 個檔案...`, "");
+      const mergedNormalizedRows = [];
+      const datasetFormats = [];
+      for (const file of files) {
+        try {
+          const buffer = await file.arrayBuffer();
+          const rows = await parseWorkbookArrayBuffer(buffer);
+          datasetFormats.push(detectDatasetFormat(rows));
+          const normalizedRows = normalizeRows(rows);
+          mergedNormalizedRows.push(...normalizedRows);
+        } catch (error) {
+          throw new Error(`${file.name}：${error.message}`);
+        }
+      }
+      if (mergedNormalizedRows.length < 2) {
+        throw new Error("有效資料不足（至少需要 2 筆有效軌跡）。");
+      }
+      const sourceLabel = files.length === 1 ? files[0].name : `${files.length} 個檔案`;
+      const skipCleaning = datasetFormats.some((format) => format === "vehicle_recognition");
+      await analyzeWithRows(mergedNormalizedRows, sourceLabel, { rowsNormalized: true, skipCleaning });
     } catch (error) {
-      setStatus(`Analyze failed: ${error.message}`, "error");
+      setStatus(`分析失敗：${error.message}`, "error");
     }
+  }
+
+  function rerenderMapIfReady() {
+    if (state.analysis?.map) {
+      renderMap(state.analysis.map);
+    }
+  }
+
+  function rerenderParkingIfReady() {
+    if (state.analysis) {
+      renderParkingView(state.analysis);
+    }
+  }
+
+  function rerenderOvernightIfReady() {
+    if (state.analysis) {
+      renderOvernightView(state.analysis);
+    } else {
+      updateOvernightModeUi();
+    }
+  }
+
+  function updateMapSettingsFromInputs() {
+    state.mapSettings = normalizeMapSettings({
+      ...state.mapSettings,
+      pointColor: els.mapPointColor?.value,
+      showPointNumbers: Boolean(els.mapPointNumbering?.checked),
+      showPointDetails: Boolean(els.mapPointDetails?.checked),
+      focusWindowOnly: Boolean(els.mapFocusWindowOnly?.checked),
+      textOpacity: Number(els.mapTextOpacity?.value),
+      textSize: Number(els.mapTextSize?.value),
+      lineColor: els.mapLineColor?.value,
+      lineStyle: els.mapLineStyle?.value,
+      lineWeight: Number(els.mapLineWeight?.value),
+      roadRouting: Boolean(els.mapRoadRouting?.checked)
+    });
+    syncMapSettingsUi();
+    saveMapSettings();
+    rerenderMapIfReady();
+  }
+
+  function updateParkingCategoryFromUi(category) {
+    state.parkingSettings = normalizeParkingSettings({
+      ...state.parkingSettings,
+      durationCategory: category
+    });
+    syncParkingSettingsUi();
+    saveParkingSettings();
+    rerenderParkingIfReady();
+  }
+
+  function applyParkingCustomRange() {
+    const min = Number(els.parkingCustomMin?.value);
+    const max = Number(els.parkingCustomMax?.value);
+    state.parkingSettings = normalizeParkingSettings({
+      ...state.parkingSettings,
+      durationCategory: "custom",
+      customMin: Number.isFinite(min) ? min : state.parkingSettings.customMin,
+      customMax: Number.isFinite(max) ? max : state.parkingSettings.customMax
+    });
+    syncParkingSettingsUi();
+    saveParkingSettings();
+    rerenderParkingIfReady();
+  }
+
+  function setOvernightMode(mode) {
+    state.overnightMode = mode === OVERNIGHT_MODE_DAY ? OVERNIGHT_MODE_DAY : OVERNIGHT_MODE_NIGHT;
+    rerenderOvernightIfReady();
   }
 
 function setActiveView(viewKey) {
@@ -1784,6 +2359,35 @@ function setActiveView(viewKey) {
     });
 
     els.analyzeForm?.addEventListener("submit", handleAnalyzeSubmit);
+
+    for (const radio of els.parkingDurationRadios) {
+      radio.addEventListener("change", () => {
+        if (!radio.checked) return;
+        updateParkingCategoryFromUi(radio.value);
+      });
+    }
+    els.parkingCustomApply?.addEventListener("click", applyParkingCustomRange);
+
+    els.overnightModeNight?.addEventListener("click", () => {
+      setOvernightMode(OVERNIGHT_MODE_NIGHT);
+    });
+    els.overnightModeDay?.addEventListener("click", () => {
+      setOvernightMode(OVERNIGHT_MODE_DAY);
+    });
+
+    els.mapSettingsToggle?.addEventListener("click", () => {
+      els.mapSettingsPanel?.classList.toggle("hidden");
+    });
+    els.mapPointColor?.addEventListener("input", updateMapSettingsFromInputs);
+    els.mapPointNumbering?.addEventListener("change", updateMapSettingsFromInputs);
+    els.mapPointDetails?.addEventListener("change", updateMapSettingsFromInputs);
+    els.mapFocusWindowOnly?.addEventListener("change", updateMapSettingsFromInputs);
+    els.mapTextOpacity?.addEventListener("input", updateMapSettingsFromInputs);
+    els.mapTextSize?.addEventListener("input", updateMapSettingsFromInputs);
+    els.mapLineColor?.addEventListener("input", updateMapSettingsFromInputs);
+    els.mapLineStyle?.addEventListener("change", updateMapSettingsFromInputs);
+    els.mapLineWeight?.addEventListener("input", updateMapSettingsFromInputs);
+    els.mapRoadRouting?.addEventListener("change", updateMapSettingsFromInputs);
 
     els.toggleTeleport?.addEventListener("click", () => {
       setTeleportVisible(!state.teleportVisible);
@@ -1852,6 +2456,11 @@ function setActiveView(viewKey) {
   }
 
   function init() {
+    loadUserSettings();
+    syncMapSettingsUi();
+    syncParkingSettingsUi();
+    updateOvernightModeUi();
+    configureSidebarYoutubeEmbed();
     bindEvents();
     ensureDefaultAiPrompt();
     initMapIfNeeded();
