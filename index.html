@@ -137,7 +137,7 @@
             </label>
             <label class="parking-option">
               <input type="radio" name="parking-duration" value="10-60" id="parking-dur-10-60" checked>
-              10–60 分鐘
+              10–59 分鐘
             </label>
             <label class="parking-option">
               <input type="radio" name="parking-duration" value="60+" id="parking-dur-60">
@@ -156,6 +156,37 @@
           </div>
         </div>
         <div id="parking-count" class="counter"></div>
+        <div class="parking-map-panel">
+          <div class="parking-map-meta">
+            <div class="parking-playback-controls">
+              <label class="parking-playback-order-wrap">
+                <span>播放排序</span>
+                <select id="parking-playback-order">
+                  <option value="visits" selected>次數優先</option>
+                  <option value="frequency">頻率優先</option>
+                </select>
+              </label>
+              <label class="parking-playback-case-wrap">
+                <span>案件</span>
+                <select id="parking-playback-select" disabled>
+                  <option value="">尚無案件</option>
+                </select>
+              </label>
+              <button type="button" id="parking-playback-toggle" class="ghost-btn parking-playback-btn" disabled>播放案件</button>
+              <label class="parking-playback-speed">
+                速度
+                <input type="range" id="parking-playback-speed" min="0.5" max="3" step="0.5" value="1">
+                <span id="parking-playback-speed-label">1.0x</span>
+              </label>
+            </div>
+            <div class="parking-map-status-line">
+              <div id="parking-playback-current" class="counter parking-map-status-item">尚未開始播放</div>
+              <div id="parking-map-summary" class="counter parking-map-status-item"></div>
+              <div id="parking-map-legend" class="parking-map-legend"></div>
+            </div>
+          </div>
+          <div id="parking-map" class="parking-map"></div>
+        </div>
         <div id="table-parking" class="table-wrap"></div>
       </section>
 

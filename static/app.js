@@ -37,6 +37,7 @@
     customMin: 10,
     customMax: 60
   };
+  const PARKING_CLUSTER_RADIUS_M = 100;
   const DEFAULT_AI_PROMPT = `角色： 專業刑事交通數據分析師（具備15年資深偵查、洗錢與毒品案背景）。
 任務： 分析 LPR 汽機車路徑資料，識別停留點、識別日常作息，產出偵查報告與搜索聲請附件。
 
@@ -72,7 +73,9 @@
   const state = {
     analysis: null,
     map: null,
+    parkingMap: null,
     layers: {},
+    parkingLayers: {},
     currentMarker: null,
     track: [],
     currentTrackIndex: 0,
@@ -86,6 +89,16 @@
     overnightMode: OVERNIGHT_MODE_NIGHT,
     mapSettings: { ...DEFAULT_MAP_SETTINGS },
     parkingSettings: { ...DEFAULT_PARKING_SETTINGS },
+    parkingMapAutoFitKeys: new Set(),
+    parkingMapProgrammaticMove: false,
+    parkingMapUserAdjusted: false,
+    parkingPlaybackRunning: false,
+    parkingPlaybackToken: 0,
+    parkingPlaybackIndex: 0,
+    parkingPlaybackRangeKey: "",
+    parkingPlaybackSequence: [],
+    parkingPlaybackMarkerByCluster: new Map(),
+    parkingPlaybackActiveMarker: null,
     csvExports: {
       stay: "",
       hotspot: "",
@@ -109,6 +122,15 @@
     parkingCustomMin: document.getElementById("parking-custom-min"),
     parkingCustomMax: document.getElementById("parking-custom-max"),
     parkingCustomApply: document.getElementById("parking-custom-apply"),
+    parkingMap: document.getElementById("parking-map"),
+    parkingPlaybackOrder: document.getElementById("parking-playback-order"),
+    parkingPlaybackSelect: document.getElementById("parking-playback-select"),
+    parkingPlaybackToggle: document.getElementById("parking-playback-toggle"),
+    parkingPlaybackSpeed: document.getElementById("parking-playback-speed"),
+    parkingPlaybackSpeedLabel: document.getElementById("parking-playback-speed-label"),
+    parkingPlaybackCurrent: document.getElementById("parking-playback-current"),
+    parkingMapSummary: document.getElementById("parking-map-summary"),
+    parkingMapLegend: document.getElementById("parking-map-legend"),
     overnightCount: document.getElementById("overnight-count"),
     overnightModeNight: document.getElementById("overnight-mode-night"),
     overnightModeDay: document.getElementById("overnight-mode-day"),
@@ -319,7 +341,7 @@
       const [a, b] = min <= maxRaw ? [min, maxRaw] : [maxRaw, min];
       return { min: a, max: b, label: `${a}–${b} 分鐘` };
     }
-    return { min: 10, max: 60, label: "10–60 分鐘" };
+    return { min: 10, max: 59, label: "10–59 分鐘" };
   }
 
   function ensureDefaultAiPrompt() {
@@ -1157,6 +1179,523 @@
     updateOvernightModeUi();
   }
 
+  function getParkingRangeKey(settings, range) {
+    const category = String(settings?.durationCategory || "10-60");
+    if (category === "custom") {
+      return `custom:${range.min}-${range.max}`;
+    }
+    return category;
+  }
+
+  function getParkingMapTheme(settings) {
+    const category = String(settings?.durationCategory || "10-60");
+    if (category === "4-6") {
+      return {
+        categoryLabel: "4–6 分鐘",
+        rawColor: "#ffd166",
+        clusterColor: "#ffb703",
+        clusterStroke: "#8f5a00"
+      };
+    }
+    if (category === "60+") {
+      return {
+        categoryLabel: "60 分鐘以上",
+        rawColor: "#ff6b6b",
+        clusterColor: "#d90429",
+        clusterStroke: "#7a0014"
+      };
+    }
+    if (category === "custom") {
+      return {
+        categoryLabel: "自訂區間",
+        rawColor: "#66d9ff",
+        clusterColor: "#119da4",
+        clusterStroke: "#0b5960"
+      };
+    }
+    return {
+      categoryLabel: "10–59 分鐘",
+      rawColor: "#f4a261",
+      clusterColor: "#e76f51",
+      clusterStroke: "#7b341e"
+    };
+  }
+
+  function getParkingAnalysisDays(summary) {
+    const start = parseRocDateTime(summary?.period_start);
+    const end = parseRocDateTime(summary?.period_end);
+    if (!(start instanceof Date) || Number.isNaN(start.getTime())) return 1;
+    if (!(end instanceof Date) || Number.isNaN(end.getTime())) return 1;
+    const diffDays = (end.getTime() - start.getTime()) / 86400000;
+    if (!Number.isFinite(diffDays)) return 1;
+    return Math.max(1, diffDays);
+  }
+
+  function topCounterEntry(counterMap) {
+    let bestKey = "未提供";
+    let bestVal = -1;
+    for (const [key, value] of counterMap.entries()) {
+      if (value > bestVal) {
+        bestVal = value;
+        bestKey = key;
+      }
+    }
+    return bestKey;
+  }
+
+  function buildParkingClusters(rows, radiusM, analysisDays) {
+    const sourceRows = Array.isArray(rows) ? rows : [];
+    const clusters = [];
+    const assignments = new Array(sourceRows.length).fill(-1);
+
+    for (let idx = 0; idx < sourceRows.length; idx += 1) {
+      const row = sourceRows[idx];
+      if (!row || !Number.isFinite(row.lat) || !Number.isFinite(row.lon)) continue;
+
+      let assignedIndex = -1;
+      for (let i = 0; i < clusters.length; i += 1) {
+        const cluster = clusters[i];
+        const distM = haversineKm(row.lat, row.lon, cluster.centerLat, cluster.centerLon) * 1000;
+        if (distM <= radiusM) {
+          assignedIndex = i;
+          break;
+        }
+      }
+
+      if (assignedIndex < 0) {
+        clusters.push({
+          centerLat: row.lat,
+          centerLon: row.lon,
+          visits: 0,
+          durationMin: 0,
+          areaCounter: new Map(),
+          addrCounter: new Map(),
+          firstArrive: null,
+          lastLeave: null
+        });
+        assignedIndex = clusters.length - 1;
+      }
+
+      assignments[idx] = assignedIndex;
+      const assigned = clusters[assignedIndex];
+      assigned.visits += 1;
+      assigned.durationMin += Number(row.duration_min) || 0;
+      assigned.areaCounter.set(row.area || "未提供", (assigned.areaCounter.get(row.area || "未提供") || 0) + 1);
+      assigned.addrCounter.set(
+        row.closest_address || row.address || row.area || "未提供",
+        (assigned.addrCounter.get(row.closest_address || row.address || row.area || "未提供") || 0) + 1
+      );
+
+      const arriveDt = parseRocDateTime(row.arrive_time);
+      const leaveDt = parseRocDateTime(row.leave_time);
+      if (arriveDt && (!assigned.firstArrive || arriveDt < assigned.firstArrive)) {
+        assigned.firstArrive = arriveDt;
+      }
+      if (leaveDt && (!assigned.lastLeave || leaveDt > assigned.lastLeave)) {
+        assigned.lastLeave = leaveDt;
+      }
+
+      const w = assigned.visits;
+      assigned.centerLat = (assigned.centerLat * (w - 1) + row.lat) / w;
+      assigned.centerLon = (assigned.centerLon * (w - 1) + row.lon) / w;
+    }
+
+    const total = Math.max(1, sourceRows.length);
+    const safeDays = Math.max(1, analysisDays || 1);
+    const normalized = clusters.map((cluster, clusterIndex) => {
+      const sharePct = (cluster.visits / total) * 100;
+      const dailyFreq = cluster.visits / safeDays;
+      return {
+        clusterIndex,
+        visits: cluster.visits,
+        total_duration_min: Number(cluster.durationMin.toFixed(2)),
+        total_duration_hhmm: formatDuration(cluster.durationMin),
+        center_lat: Number(cluster.centerLat.toFixed(6)),
+        center_lon: Number(cluster.centerLon.toFixed(6)),
+        area: topCounterEntry(cluster.areaCounter),
+        closest_address: topCounterEntry(cluster.addrCounter),
+        first_arrive: cluster.firstArrive ? formatDateTime(cluster.firstArrive) : "-",
+        last_leave: cluster.lastLeave ? formatDateTime(cluster.lastLeave) : "-",
+        share_pct: Number(sharePct.toFixed(1)),
+        daily_freq: Number(dailyFreq.toFixed(2)),
+        marker_radius: clamp(6 + Math.sqrt(cluster.visits) * 2.2, 6, 20),
+        label_text: `${cluster.visits}次｜${sharePct.toFixed(1)}%｜${dailyFreq.toFixed(2)}次/日`
+      };
+    });
+
+    return { clusters: normalized, assignments };
+  }
+
+  function withParkingMapProgrammaticMove(action, holdMs = 260) {
+    state.parkingMapProgrammaticMove = true;
+    action();
+    window.setTimeout(() => {
+      state.parkingMapProgrammaticMove = false;
+    }, Math.max(120, Number(holdMs) || 260));
+  }
+
+  function setParkingPlaybackButtonUi(running) {
+    if (!els.parkingPlaybackToggle) return;
+    els.parkingPlaybackToggle.textContent = running ? "停止播放" : "播放案件";
+    els.parkingPlaybackToggle.classList.toggle("is-playing", Boolean(running));
+  }
+
+  function setParkingPlaybackControlsEnabled(enabled) {
+    const active = Boolean(enabled);
+    if (els.parkingPlaybackToggle) els.parkingPlaybackToggle.disabled = !active;
+    if (els.parkingPlaybackSpeed) els.parkingPlaybackSpeed.disabled = !active;
+    if (els.parkingPlaybackOrder) els.parkingPlaybackOrder.disabled = !active;
+    if (els.parkingPlaybackSelect) els.parkingPlaybackSelect.disabled = !active;
+  }
+
+  function updateParkingPlaybackCurrent(text) {
+    if (!els.parkingPlaybackCurrent) return;
+    els.parkingPlaybackCurrent.textContent = text;
+  }
+
+  function updateParkingPlaybackSpeedLabel() {
+    const value = Math.max(0.5, Number(els.parkingPlaybackSpeed?.value || 1));
+    if (els.parkingPlaybackSpeedLabel) {
+      els.parkingPlaybackSpeedLabel.textContent = `${value.toFixed(1)}x`;
+    }
+  }
+
+  function getParkingPlaybackOrder() {
+    return String(els.parkingPlaybackOrder?.value || "visits") === "frequency" ? "frequency" : "visits";
+  }
+
+  function getParkingPlaybackOrderLabel() {
+    return getParkingPlaybackOrder() === "frequency" ? "頻率優先" : "次數優先";
+  }
+
+  function renderParkingPlaybackSelect(sequence) {
+    if (!els.parkingPlaybackSelect) return;
+
+    const seq = Array.isArray(sequence) ? sequence : [];
+    if (!seq.length) {
+      els.parkingPlaybackSelect.innerHTML = '<option value="">尚無案件</option>';
+      els.parkingPlaybackSelect.value = "";
+      return;
+    }
+
+    const current = clamp(state.parkingPlaybackIndex, 0, seq.length - 1);
+    state.parkingPlaybackIndex = current;
+    els.parkingPlaybackSelect.innerHTML = seq
+      .map(
+        (cluster, idx) =>
+          `<option value="${idx}">#${idx + 1}｜${cluster.visits}次｜${cluster.share_pct}%｜${cluster.daily_freq}次/日</option>`
+      )
+      .join("");
+    els.parkingPlaybackSelect.value = String(current);
+  }
+
+  function getParkingPlaybackSequence(clusters) {
+    const source = Array.isArray(clusters) ? clusters.slice() : [];
+    if (getParkingPlaybackOrder() === "frequency") {
+      return source.sort((a, b) => {
+        if (b.daily_freq !== a.daily_freq) return b.daily_freq - a.daily_freq;
+        if (b.share_pct !== a.share_pct) return b.share_pct - a.share_pct;
+        if (b.visits !== a.visits) return b.visits - a.visits;
+        return b.total_duration_min - a.total_duration_min;
+      });
+    }
+
+    return source.sort((a, b) => {
+      if (b.visits !== a.visits) return b.visits - a.visits;
+      if (b.daily_freq !== a.daily_freq) return b.daily_freq - a.daily_freq;
+      if (b.share_pct !== a.share_pct) return b.share_pct - a.share_pct;
+      return b.total_duration_min - a.total_duration_min;
+    });
+  }
+
+  function clearParkingPlaybackHighlight() {
+    const marker = state.parkingPlaybackActiveMarker;
+    if (!marker) return;
+
+    if (Number.isFinite(marker.__baseRadius)) {
+      marker.setRadius(marker.__baseRadius);
+    }
+    marker.setStyle({
+      color: marker.__baseColor || "#7b341e",
+      fillColor: marker.__baseFillColor || "#e76f51",
+      fillOpacity: Number.isFinite(marker.__baseFillOpacity) ? marker.__baseFillOpacity : 0.82,
+      weight: Number.isFinite(marker.__baseWeight) ? marker.__baseWeight : 1.8
+    });
+    state.parkingPlaybackActiveMarker = null;
+  }
+
+  function highlightParkingPlaybackMarker(marker) {
+    clearParkingPlaybackHighlight();
+    if (!marker) return;
+
+    if (Number.isFinite(marker.__baseRadius)) {
+      marker.setRadius(Math.min(24, marker.__baseRadius + 2.8));
+    }
+    marker.setStyle({
+      color: "#ffffff",
+      fillColor: "#39ff14",
+      fillOpacity: 0.96,
+      weight: 2.5
+    });
+    state.parkingPlaybackActiveMarker = marker;
+  }
+
+  function focusParkingCluster(cluster, focus = true) {
+    if (!state.parkingMap || !cluster || !focus) return Promise.resolve();
+    const lat = Number(cluster.center_lat);
+    const lon = Number(cluster.center_lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return Promise.resolve();
+
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        state.parkingMap.off("moveend", onMoveEnd);
+        resolve();
+      };
+      const onMoveEnd = () => window.setTimeout(finish, 80);
+      state.parkingMap.on("moveend", onMoveEnd);
+      const zoom = state.parkingMap.getZoom();
+      withParkingMapProgrammaticMove(() => {
+        state.parkingMap.flyTo([lat, lon], zoom, {
+          animate: true,
+          duration: 0.75
+        });
+      }, 1500);
+      window.setTimeout(finish, 1700);
+    });
+  }
+
+  async function setParkingPlaybackIndex(index, options = {}) {
+    const seq = state.parkingPlaybackSequence;
+    if (!Array.isArray(seq) || !seq.length) {
+      updateParkingPlaybackCurrent("目前無可播放地點");
+      return;
+    }
+
+    const clamped = clamp(index, 0, seq.length - 1);
+    state.parkingPlaybackIndex = clamped;
+    if (els.parkingPlaybackSelect) {
+      els.parkingPlaybackSelect.value = String(clamped);
+    }
+    const cluster = seq[clamped];
+    if (!cluster) return;
+
+    const marker = state.parkingPlaybackMarkerByCluster.get(cluster.clusterIndex) || null;
+    highlightParkingPlaybackMarker(marker);
+    marker?.openPopup();
+
+    updateParkingPlaybackCurrent(
+      `案件 ${clamped + 1}/${seq.length}｜${getParkingPlaybackOrderLabel()}｜${cluster.visits}次｜${cluster.share_pct}%｜${cluster.daily_freq}/日`
+    );
+
+    await focusParkingCluster(cluster, options.focus !== false);
+  }
+
+  function stopParkingPlayback(options = {}) {
+    state.parkingPlaybackRunning = false;
+    state.parkingPlaybackToken += 1;
+    setParkingPlaybackButtonUi(false);
+
+    if (options.clearHighlight) {
+      clearParkingPlaybackHighlight();
+    }
+    if (options.resetIndex) {
+      state.parkingPlaybackIndex = 0;
+    }
+  }
+
+  async function toggleParkingPlayback() {
+    if (!state.parkingPlaybackSequence.length) return;
+
+    if (state.parkingPlaybackRunning) {
+      stopParkingPlayback({ clearHighlight: false, resetIndex: false });
+      return;
+    }
+
+    state.parkingPlaybackRunning = true;
+    state.parkingPlaybackToken += 1;
+    const token = state.parkingPlaybackToken;
+    setParkingPlaybackButtonUi(true);
+
+    let idx = clamp(state.parkingPlaybackIndex, 0, state.parkingPlaybackSequence.length - 1);
+    while (state.parkingPlaybackRunning && token === state.parkingPlaybackToken && idx < state.parkingPlaybackSequence.length) {
+      await setParkingPlaybackIndex(idx, { focus: true });
+      const speed = Math.max(0.5, Number(els.parkingPlaybackSpeed?.value || 1));
+      const delay = Math.max(180, Math.round(1050 / speed));
+      await sleep(delay);
+      idx += 1;
+    }
+
+    if (token === state.parkingPlaybackToken) {
+      state.parkingPlaybackRunning = false;
+      setParkingPlaybackButtonUi(false);
+      updateParkingPlaybackCurrent(`播放完成｜已巡覽 ${state.parkingPlaybackSequence.length} 個統計點`);
+    }
+  }
+
+  function initParkingMapIfNeeded() {
+    if (state.parkingMap || !els.parkingMap || typeof L === "undefined") return;
+
+    state.parkingMap = L.map(els.parkingMap, { preferCanvas: true }).setView(
+      [MAP_DEFAULT_VIEW.lat, MAP_DEFAULT_VIEW.lon],
+      MAP_DEFAULT_VIEW.zoom
+    );
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap"
+    }).addTo(state.parkingMap);
+
+    state.parkingLayers.rawPoints = L.layerGroup().addTo(state.parkingMap);
+    state.parkingLayers.clusterPoints = L.layerGroup().addTo(state.parkingMap);
+
+    state.parkingMap.on("moveend", () => {
+      if (state.parkingMapProgrammaticMove) return;
+      state.parkingMapUserAdjusted = true;
+    });
+  }
+
+  function renderParkingMapLegend(theme) {
+    if (!els.parkingMapLegend) return;
+    els.parkingMapLegend.innerHTML = `
+      <span class="parking-legend-chip"><i style="background:${theme.rawColor};"></i>逐筆停留點</span>
+      <span class="parking-legend-chip"><i style="background:${theme.clusterColor};border-color:${theme.clusterStroke};"></i>100m 統計點</span>
+      <span class="parking-legend-note">格式：次數｜占比｜日均</span>
+    `;
+  }
+
+  function renderParkingMap(rows, range, result) {
+    initParkingMapIfNeeded();
+    if (!state.parkingMap) return;
+
+    state.parkingLayers.rawPoints?.clearLayers();
+    state.parkingLayers.clusterPoints?.clearLayers();
+
+    const theme = getParkingMapTheme(state.parkingSettings);
+    renderParkingMapLegend(theme);
+    const rangeKey = getParkingRangeKey(state.parkingSettings, range);
+    const previousRangeKey = state.parkingPlaybackRangeKey;
+    state.parkingPlaybackRangeKey = rangeKey;
+
+    const validRows = (Array.isArray(rows) ? rows : []).filter(
+      (row) => row && Number.isFinite(row.lat) && Number.isFinite(row.lon)
+    );
+
+    if (!validRows.length) {
+      stopParkingPlayback({ clearHighlight: true, resetIndex: true });
+      state.parkingPlaybackSequence = [];
+      state.parkingPlaybackMarkerByCluster = new Map();
+      renderParkingPlaybackSelect([]);
+      setParkingPlaybackControlsEnabled(false);
+      updateParkingPlaybackCurrent("目前無可播放地點");
+      if (els.parkingMapSummary) {
+        els.parkingMapSummary.textContent = `地圖筆數：0（篩選：${range.label}）`;
+      }
+      window.setTimeout(() => state.parkingMap?.invalidateSize(), 80);
+      return;
+    }
+
+    const analysisDays = getParkingAnalysisDays(result?.summary);
+    const { clusters, assignments } = buildParkingClusters(validRows, PARKING_CLUSTER_RADIUS_M, analysisDays);
+    const clusterByIndex = new Map(clusters.map((cluster) => [cluster.clusterIndex, cluster]));
+    const clusterMarkerByIndex = new Map();
+
+    if (els.parkingMapSummary) {
+      els.parkingMapSummary.textContent = `地圖筆數：${validRows.length}（篩選：${range.label}；期間 ${analysisDays.toFixed(2)} 天）`;
+    }
+
+    validRows.forEach((row, idx) => {
+      const marker = L.circleMarker([row.lat, row.lon], {
+        radius: 4.2,
+        color: theme.rawColor,
+        fillColor: theme.rawColor,
+        fillOpacity: 0.3,
+        weight: 1.1
+      });
+
+      const cluster = clusterByIndex.get(assignments[idx]);
+      const clusterStat = cluster
+        ? `群組統計：${cluster.visits} 次｜${cluster.share_pct}%｜${cluster.daily_freq} 次/日`
+        : "群組統計：未提供";
+
+      marker.bindPopup(
+        `<b>${escapeHtml(range.label)}</b><br>${escapeHtml(row.arrive_time)} ~ ${escapeHtml(row.leave_time)}<br>${escapeHtml(
+          row.duration_hhmm
+        )}<br>${escapeHtml(row.closest_address || row.area || "未提供")}<br>${escapeHtml(clusterStat)}`
+      );
+      marker.addTo(state.parkingLayers.rawPoints);
+    });
+
+    clusters
+      .slice()
+      .sort((a, b) => a.visits - b.visits)
+      .forEach((cluster) => {
+        const marker = L.circleMarker([cluster.center_lat, cluster.center_lon], {
+          radius: cluster.marker_radius,
+          color: theme.clusterStroke,
+          fillColor: theme.clusterColor,
+          fillOpacity: 0.82,
+          weight: 1.8
+        });
+
+        marker.bindPopup(
+          `<b>停車統計點</b><br>次數：${cluster.visits}<br>占比：${cluster.share_pct}%<br>日均：${cluster.daily_freq} 次/日<br>總停留：${escapeHtml(
+            cluster.total_duration_hhmm
+          )}<br>主要地點：${escapeHtml(cluster.closest_address || cluster.area || "未提供")}<br>最早抵達：${escapeHtml(
+            cluster.first_arrive
+          )}<br>最晚離開：${escapeHtml(cluster.last_leave)}`
+        );
+
+        marker.bindTooltip(`<span class="parking-cluster-label">${escapeHtml(cluster.label_text)}</span>`, {
+          permanent: true,
+          direction: "right",
+          offset: [10, 0],
+          className: "parking-cluster-tooltip"
+        });
+
+        marker.__baseRadius = cluster.marker_radius;
+        marker.__baseColor = theme.clusterStroke;
+        marker.__baseFillColor = theme.clusterColor;
+        marker.__baseFillOpacity = 0.82;
+        marker.__baseWeight = 1.8;
+        clusterMarkerByIndex.set(cluster.clusterIndex, marker);
+        marker.addTo(state.parkingLayers.clusterPoints);
+      });
+
+    const playbackSequence = getParkingPlaybackSequence(clusters);
+    state.parkingPlaybackSequence = playbackSequence;
+    state.parkingPlaybackMarkerByCluster = clusterMarkerByIndex;
+    renderParkingPlaybackSelect(playbackSequence);
+    setParkingPlaybackControlsEnabled(playbackSequence.length > 0);
+    updateParkingPlaybackSpeedLabel();
+
+    if (state.parkingPlaybackRunning && previousRangeKey !== rangeKey) {
+      stopParkingPlayback({ clearHighlight: true, resetIndex: true });
+    }
+
+    if (!state.parkingPlaybackRunning) {
+      if (!playbackSequence.length) {
+        updateParkingPlaybackCurrent("目前無可播放地點");
+      } else {
+        state.parkingPlaybackIndex = clamp(state.parkingPlaybackIndex, 0, playbackSequence.length - 1);
+        void setParkingPlaybackIndex(state.parkingPlaybackIndex, { focus: false });
+      }
+    }
+
+    const shouldAutoFit = !state.parkingMapUserAdjusted && !state.parkingMapAutoFitKeys.has(rangeKey);
+    if (shouldAutoFit) {
+      const bounds = L.latLngBounds(validRows.map((row) => [row.lat, row.lon]));
+      withParkingMapProgrammaticMove(() => {
+        state.parkingMap.fitBounds(bounds, { padding: [36, 36], maxZoom: 17, animate: false });
+      });
+      state.parkingMapAutoFitKeys.add(rangeKey);
+    }
+
+    window.setTimeout(() => state.parkingMap?.invalidateSize(), 80);
+  }
+
   function renderParkingView(result) {
     const stays = Array.isArray(result?.stays) ? result.stays : [];
     const range = getParkingDurationRange(state.parkingSettings);
@@ -1177,6 +1716,7 @@
       { key: "closest_address", label: "最接近地址" },
       { key: "stay_type", label: "類型" }
     ]);
+    renderParkingMap(rows, range, result);
   }
 
   function renderHourlyChart(hourlyCounts) {
@@ -1772,6 +2312,11 @@ function setupTimelineControls(track) {
     state.csvExports.stay = result.exports.stay_csv;
     state.csvExports.hotspot = result.exports.hotspot_csv;
     state.csvExports.validation = result.exports.validation_csv;
+    stopParkingPlayback({ clearHighlight: true, resetIndex: true });
+    state.parkingPlaybackSequence = [];
+    state.parkingPlaybackMarkerByCluster = new Map();
+    state.parkingMapAutoFitKeys.clear();
+    state.parkingMapUserAdjusted = false;
 
     renderParkingView(result);
     renderOvernightView(result);
@@ -2324,6 +2869,7 @@ function extractGeminiText(payload) {
   }
 
   function updateParkingCategoryFromUi(category) {
+    stopParkingPlayback({ clearHighlight: true, resetIndex: true });
     state.parkingSettings = normalizeParkingSettings({
       ...state.parkingSettings,
       durationCategory: category
@@ -2334,6 +2880,7 @@ function extractGeminiText(payload) {
   }
 
   function applyParkingCustomRange() {
+    stopParkingPlayback({ clearHighlight: true, resetIndex: true });
     const min = Number(els.parkingCustomMin?.value);
     const max = Number(els.parkingCustomMax?.value);
     state.parkingSettings = normalizeParkingSettings({
@@ -2353,6 +2900,9 @@ function extractGeminiText(payload) {
   }
 
 function setActiveView(viewKey) {
+    if (viewKey !== "parking" && state.parkingPlaybackRunning) {
+      stopParkingPlayback({ clearHighlight: false, resetIndex: false });
+    }
     const menuItems = Array.from(document.querySelectorAll(".menu-item"));
     menuItems.forEach((item) => {
       item.classList.toggle("active", item.dataset.view === viewKey);
@@ -2364,6 +2914,9 @@ function setActiveView(viewKey) {
 
     if (viewKey === "map" && state.map) {
       setTimeout(() => state.map.invalidateSize(), 120);
+    }
+    if (viewKey === "parking" && state.parkingMap) {
+      setTimeout(() => state.parkingMap.invalidateSize(), 120);
     }
   }
 
@@ -2385,6 +2938,9 @@ function setActiveView(viewKey) {
       if (state.map) {
         setTimeout(() => state.map.invalidateSize(), 200);
       }
+      if (state.parkingMap) {
+        setTimeout(() => state.parkingMap.invalidateSize(), 200);
+      }
     });
 
     els.analyzeForm?.addEventListener("submit", handleAnalyzeSubmit);
@@ -2396,6 +2952,18 @@ function setActiveView(viewKey) {
       });
     }
     els.parkingCustomApply?.addEventListener("click", applyParkingCustomRange);
+    els.parkingPlaybackToggle?.addEventListener("click", toggleParkingPlayback);
+    els.parkingPlaybackSpeed?.addEventListener("input", updateParkingPlaybackSpeedLabel);
+    els.parkingPlaybackOrder?.addEventListener("change", () => {
+      stopParkingPlayback({ clearHighlight: true, resetIndex: true });
+      rerenderParkingIfReady();
+    });
+    els.parkingPlaybackSelect?.addEventListener("change", async (event) => {
+      stopParkingPlayback({ clearHighlight: true, resetIndex: false });
+      const idx = Number(event.target.value);
+      if (!Number.isFinite(idx)) return;
+      await setParkingPlaybackIndex(idx, { focus: true });
+    });
 
     els.overnightModeNight?.addEventListener("click", () => {
       setOvernightMode(OVERNIGHT_MODE_NIGHT);
@@ -2481,6 +3049,9 @@ function setActiveView(viewKey) {
       if (state.map) {
         state.map.invalidateSize();
       }
+      if (state.parkingMap) {
+        state.parkingMap.invalidateSize();
+      }
     });
   }
 
@@ -2488,6 +3059,11 @@ function setActiveView(viewKey) {
     loadUserSettings();
     syncMapSettingsUi();
     syncParkingSettingsUi();
+    setParkingPlaybackControlsEnabled(false);
+    setParkingPlaybackButtonUi(false);
+    renderParkingPlaybackSelect([]);
+    updateParkingPlaybackSpeedLabel();
+    updateParkingPlaybackCurrent("尚未開始播放");
     updateOvernightModeUi();
     configureSidebarYoutubeEmbed();
     bindEvents();
