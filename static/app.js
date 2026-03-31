@@ -14,7 +14,7 @@
   };
 
   const GEMINI_ENDPOINT_DEFAULT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
-  const FIRST_OPEN_NOTICE_KEY = "sb-first-open-notice-20260324-update";
+  const FIRST_OPEN_NOTICE_KEY = "sb-first-open-notice-20260331-update-b";
   const MAP_SETTINGS_KEY = "caridentify-map-settings";
   const PARKING_SETTINGS_KEY = "caridentify-parking-settings";
   const OVERNIGHT_MODE_NIGHT = "night";
@@ -34,9 +34,13 @@
   };
   const DEFAULT_PARKING_SETTINGS = {
     durationCategory: "10-60",
-    customMin: 10,
-    customMax: 60
+    customMin: 360,
+    customMax: 99999,
+    popupOpacity: 65
   };
+  const DEFAULT_NORMAL_DRIVING_SPEED_KMH = 40;
+  const MIN_NORMAL_DRIVING_SPEED_KMH = 1;
+  const MAX_NORMAL_DRIVING_SPEED_KMH = 150;
   const PARKING_CLUSTER_RADIUS_M = 100;
   const DEFAULT_AI_PROMPT = `角色： 專業刑事交通數據分析師（具備15年資深偵查、洗錢與毒品案背景）。
 任務： 分析 LPR 汽機車路徑資料，識別停留點、識別日常作息，產出偵查報告與搜索聲請附件。
@@ -99,6 +103,7 @@
     parkingPlaybackSequence: [],
     parkingPlaybackMarkerByCluster: new Map(),
     parkingPlaybackActiveMarker: null,
+    parkingClusterByIndex: new Map(),
     csvExports: {
       stay: "",
       hotspot: "",
@@ -116,12 +121,18 @@
     analyzeForm: document.getElementById("analyze-form"),
     fileInput: document.getElementById("file-input"),
     strictDistance: document.getElementById("strict-distance"),
+    normalDrivingSpeed: document.getElementById("normal-driving-speed"),
+    normalDrivingSpeedReset: document.getElementById("normal-driving-speed-reset"),
     status: document.getElementById("status"),
     parkingCount: document.getElementById("parking-count"),
     parkingDurationRadios: Array.from(document.querySelectorAll("input[name='parking-duration']")),
     parkingCustomMin: document.getElementById("parking-custom-min"),
     parkingCustomMax: document.getElementById("parking-custom-max"),
     parkingCustomApply: document.getElementById("parking-custom-apply"),
+    parkingSettingsToggle: document.getElementById("parking-settings-toggle"),
+    parkingSettingsPanel: document.getElementById("parking-settings-panel"),
+    parkingPopupOpacity: document.getElementById("parking-popup-opacity"),
+    parkingPopupOpacityLabel: document.getElementById("parking-popup-opacity-label"),
     parkingMap: document.getElementById("parking-map"),
     parkingPlaybackOrder: document.getElementById("parking-playback-order"),
     parkingPlaybackSelect: document.getElementById("parking-playback-select"),
@@ -277,10 +288,12 @@
 
     const customMin = Math.max(0, Number.parseFloat(input.customMin));
     const customMax = Math.max(0, Number.parseFloat(input.customMax));
+    const popupOpacity = clamp(Number(input.popupOpacity) || DEFAULT_PARKING_SETTINGS.popupOpacity, 35, 100);
     return {
       durationCategory: category,
       customMin: Number.isFinite(customMin) ? customMin : DEFAULT_PARKING_SETTINGS.customMin,
-      customMax: Number.isFinite(customMax) ? customMax : DEFAULT_PARKING_SETTINGS.customMax
+      customMax: Number.isFinite(customMax) ? customMax : DEFAULT_PARKING_SETTINGS.customMax,
+      popupOpacity: Number.isFinite(popupOpacity) ? popupOpacity : DEFAULT_PARKING_SETTINGS.popupOpacity
     };
   }
 
@@ -325,6 +338,38 @@
     }
     if (els.parkingCustomMin) els.parkingCustomMin.value = String(settings.customMin);
     if (els.parkingCustomMax) els.parkingCustomMax.value = String(settings.customMax);
+    if (els.parkingPopupOpacity) els.parkingPopupOpacity.value = String(settings.popupOpacity);
+    if (els.parkingPopupOpacityLabel) els.parkingPopupOpacityLabel.textContent = `${Math.round(settings.popupOpacity)}%`;
+    applyParkingPopupOpacityCss(settings.popupOpacity);
+  }
+
+  function applyParkingPopupOpacityCss(opacityPercent) {
+    const normalized = clamp(Number(opacityPercent) || DEFAULT_PARKING_SETTINGS.popupOpacity, 35, 100);
+    const alpha = Math.max(0.35, Math.min(1, normalized / 100));
+    document.documentElement.style.setProperty("--parking-popup-opacity", alpha.toFixed(2));
+  }
+
+  function normalizeNormalDrivingSpeed(value) {
+    const parsed = Number.parseFloat(value);
+    if (!Number.isFinite(parsed)) {
+      return DEFAULT_NORMAL_DRIVING_SPEED_KMH;
+    }
+    return clamp(Math.round(parsed), MIN_NORMAL_DRIVING_SPEED_KMH, MAX_NORMAL_DRIVING_SPEED_KMH);
+  }
+
+  function getNormalDrivingSpeedFromUi(options = {}) {
+    const syncInput = options.syncInput !== false;
+    const normalized = normalizeNormalDrivingSpeed(els.normalDrivingSpeed?.value);
+    if (syncInput && els.normalDrivingSpeed) {
+      els.normalDrivingSpeed.value = String(normalized);
+    }
+    return normalized;
+  }
+
+  function resetNormalDrivingSpeedToDefault() {
+    if (els.normalDrivingSpeed) {
+      els.normalDrivingSpeed.value = String(DEFAULT_NORMAL_DRIVING_SPEED_KMH);
+    }
   }
 
   function getParkingDurationRange(settings) {
@@ -367,6 +412,30 @@
     }
   }
 
+  function clearLocalSettingsAndReload() {
+    const clearMatchingKeys = (storage) => {
+      if (!storage) return;
+      for (let i = storage.length - 1; i >= 0; i -= 1) {
+        const key = storage.key(i);
+        if (!key) continue;
+        if (key.startsWith("caridentify-") || key.startsWith("sb-first-open-notice-")) {
+          storage.removeItem(key);
+        }
+      }
+    };
+
+    try {
+      clearMatchingKeys(window.localStorage);
+      clearMatchingKeys(window.sessionStorage);
+    } catch (error) {
+      // Ignore storage failures and continue to reload.
+    }
+
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("_refresh", String(Date.now()));
+    window.location.replace(nextUrl.toString());
+  }
+
   function showFirstOpenNoticeIfNeeded() {
     if (hasSeenFirstOpenNotice()) return;
 
@@ -379,16 +448,18 @@
         <h3>使用提醒</h3>
         <p>除 AI 功能外，資料均在本地運行，請安心使用。</p>
         <p>有任何需求可以私訊 <a href="https://t.me/secbeater" target="_blank" rel="noopener noreferrer">SecBetaer</a></p>
-        <h4>近期更新（摘要）</h4>
+        <h4>今日更新（2026-03-31）</h4>
         <ul class="first-open-changes">
-          <li>支援多檔匯入合併分析；車輛辨識格式會自動略過清洗。</li>
-          <li>停車分析整併，新增 4–6、10–60、60+ 與自訂時長篩選。</li>
-          <li>過夜分析改為「過夜分析 / 日間分析」雙選項切換。</li>
-          <li>地圖新增點線樣式設定、箭頭強化與「當前±1點/線段」顯示。</li>
-          <li>播放時維持使用者縮放比例；未載入資料預設定位金門尚義機場。</li>
-          <li>YouTube 連結已更新，並加入內嵌失敗提示。</li>
+          <li>停車詳細資訊改為獨立視窗顯示，避免地圖 popup 過大。</li>
+          <li>停車篩選列重排：筆數已移至時間區間與齒輪之間。</li>
+          <li>齒輪面板精簡：移除標註格式，透明度預設 65%，自訂區間預設 360~99999。</li>
+          <li>提供一鍵更新：清除本機相關設定並重新載入最新版。</li>
         </ul>
-        <button type="button" class="run-btn first-open-close" data-action="close">我知道了</button>
+        <p class="first-open-note">備註：一鍵更新會清除本機設定（地圖/停車/彈窗狀態），並強制重載最新版（等同 Ctrl+F5）。</p>
+        <div class="first-open-actions">
+          <button type="button" class="ghost-btn first-open-refresh" data-action="refresh">一鍵更新（Ctrl+F5＋清除設定）</button>
+          <button type="button" class="run-btn first-open-close" data-action="close">我知道了</button>
+        </div>
       </div>
     `;
 
@@ -415,6 +486,7 @@
       }
     });
     overlay.querySelector("[data-action='close']")?.addEventListener("click", onClose);
+    overlay.querySelector("[data-action='refresh']")?.addEventListener("click", clearLocalSettingsAndReload);
 
     document.body.appendChild(overlay);
     document.addEventListener("keydown", onEscClose);
@@ -458,6 +530,24 @@
     const hours = Math.floor(rounded / 60);
     const mins = rounded % 60;
     return `${hours}h ${mins}m`;
+  }
+
+  function formatDurationDhm(minutes) {
+    const rounded = Math.max(0, Math.round(minutes));
+    const days = Math.floor(rounded / 1440);
+    const hours = Math.floor((rounded % 1440) / 60);
+    const mins = rounded % 60;
+    return `${days}天${hours}小時${mins}分鐘`;
+  }
+
+  function getTimeOfDaySeconds(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return NaN;
+    return date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
+  }
+
+  function formatTimeOfDay(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "-";
+    return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
   }
 
   function parseRocDateTime(input) {
@@ -826,6 +916,9 @@
     const strictDistanceTeleport = Boolean(options.strictDistanceTeleport);
     const hasNormalizedInput = Array.isArray(options.normalizedRows);
     const skipCleaning = Boolean(options.skipCleaning);
+    const normalDrivingSpeedKmh = normalizeNormalDrivingSpeed(
+      options.normalDrivingSpeedKmh ?? DEFAULT_NORMAL_DRIVING_SPEED_KMH
+    );
 
     let normalized = hasNormalizedInput ? options.normalizedRows.slice() : normalizeRows(rawRows);
     normalized.sort((a, b) => {
@@ -935,6 +1028,7 @@
     const transitions = [];
     const stays = [];
     const overnight = [];
+    let normalSpeedExcluded = 0;
 
     for (let i = 0; i < clean.length - 1; i += 1) {
       const a = clean[i];
@@ -943,17 +1037,23 @@
       if (dtMin <= 0) continue;
 
       const distM = haversineKm(a.lat, a.lon, b.lat, b.lon) * 1000;
+      const speedKmh = (distM / 1000) / (dtMin / 60);
       transitions.push({
         from_id: a.id,
         to_id: b.id,
         start_time: formatDateTime(a.timestamp),
         end_time: formatDateTime(b.timestamp),
         duration_min: Number(dtMin.toFixed(2)),
-        distance_m: Number(distM.toFixed(1))
+        distance_m: Number(distM.toFixed(1)),
+        speed_kmh: Number(speedKmh.toFixed(2))
       });
 
       if (dtMin <= 4) continue;
       if (distM < 5) continue;
+      if (speedKmh >= normalDrivingSpeedKmh) {
+        normalSpeedExcluded += 1;
+        continue;
+      }
 
       const nightHours = overlapNightHours(a.timestamp, b.timestamp);
       const dayHours = overlapDayHours(a.timestamp, b.timestamp);
@@ -969,6 +1069,7 @@
         lat: Number(a.lat.toFixed(6)),
         closest_address: a.note || a.source || "未提供",
         distance_to_next_m: Number(distM.toFixed(1)),
+        speed_kmh: Number(speedKmh.toFixed(2)),
         is_breakpoint_6h: dtMin >= 360,
         day_overlap_h: Number(dayHours.toFixed(2)),
         night_overlap_h: Number(nightHours.toFixed(2)),
@@ -1006,6 +1107,8 @@
       teleportation_removed: teleportations.length,
       invalid_coord_removed: invalidCoordRows.length,
       cleaning_skipped: skipCleaning,
+      normal_speed_threshold_kmh: normalDrivingSpeedKmh,
+      normal_speed_excluded: normalSpeedExcluded,
       stay_records: stays.length,
       parking_records: parking60.length,
       overnight_records: overnight.length,
@@ -1271,15 +1374,26 @@
           areaCounter: new Map(),
           addrCounter: new Map(),
           firstArrive: null,
-          lastLeave: null
+          lastLeave: null,
+          arriveTimeMinByClock: null,
+          arriveTimeMaxByClock: null,
+          leaveTimeMinByClock: null,
+          leaveTimeMaxByClock: null,
+          longestStay: null,
+          shortestStay: null,
+          records: []
         });
         assignedIndex = clusters.length - 1;
       }
 
       assignments[idx] = assignedIndex;
       const assigned = clusters[assignedIndex];
+      const durationRaw = Number(row.duration_min);
+      const durationMin = Number.isFinite(durationRaw) ? Math.max(0, durationRaw) : 0;
+      const arriveRaw = String(row.arrive_time || "-");
+      const leaveRaw = String(row.leave_time || "-");
       assigned.visits += 1;
-      assigned.durationMin += Number(row.duration_min) || 0;
+      assigned.durationMin += durationMin;
       assigned.areaCounter.set(row.area || "未提供", (assigned.areaCounter.get(row.area || "未提供") || 0) + 1);
       assigned.addrCounter.set(
         row.closest_address || row.address || row.area || "未提供",
@@ -1294,6 +1408,61 @@
       if (leaveDt && (!assigned.lastLeave || leaveDt > assigned.lastLeave)) {
         assigned.lastLeave = leaveDt;
       }
+      if (arriveDt) {
+        const arriveSec = getTimeOfDaySeconds(arriveDt);
+        if (
+          Number.isFinite(arriveSec) &&
+          (!assigned.arriveTimeMinByClock || arriveSec < assigned.arriveTimeMinByClock.seconds)
+        ) {
+          assigned.arriveTimeMinByClock = { seconds: arriveSec, dt: arriveDt, raw: arriveRaw };
+        }
+        if (
+          Number.isFinite(arriveSec) &&
+          (!assigned.arriveTimeMaxByClock || arriveSec > assigned.arriveTimeMaxByClock.seconds)
+        ) {
+          assigned.arriveTimeMaxByClock = { seconds: arriveSec, dt: arriveDt, raw: arriveRaw };
+        }
+      }
+      if (leaveDt) {
+        const leaveSec = getTimeOfDaySeconds(leaveDt);
+        if (
+          Number.isFinite(leaveSec) &&
+          (!assigned.leaveTimeMinByClock || leaveSec < assigned.leaveTimeMinByClock.seconds)
+        ) {
+          assigned.leaveTimeMinByClock = { seconds: leaveSec, dt: leaveDt, raw: leaveRaw };
+        }
+        if (
+          Number.isFinite(leaveSec) &&
+          (!assigned.leaveTimeMaxByClock || leaveSec > assigned.leaveTimeMaxByClock.seconds)
+        ) {
+          assigned.leaveTimeMaxByClock = { seconds: leaveSec, dt: leaveDt, raw: leaveRaw };
+        }
+      }
+
+      if (Number.isFinite(durationRaw)) {
+        if (!assigned.longestStay || durationRaw > assigned.longestStay.durationMin) {
+          assigned.longestStay = {
+            durationMin: durationRaw,
+            arriveRaw,
+            leaveRaw
+          };
+        }
+        if (!assigned.shortestStay || durationRaw < assigned.shortestStay.durationMin) {
+          assigned.shortestStay = {
+            durationMin: durationRaw,
+            arriveRaw,
+            leaveRaw
+          };
+        }
+      }
+
+      assigned.records.push({
+        arrive_raw: arriveRaw,
+        leave_raw: leaveRaw,
+        duration_text: String(row.duration_hhmm || formatDuration(durationMin)),
+        duration_min: durationMin,
+        arrive_ts: arriveDt ? arriveDt.getTime() : NaN
+      });
 
       const w = assigned.visits;
       assigned.centerLat = (assigned.centerLat * (w - 1) + row.lat) / w;
@@ -1316,14 +1485,166 @@
         closest_address: topCounterEntry(cluster.addrCounter),
         first_arrive: cluster.firstArrive ? formatDateTime(cluster.firstArrive) : "-",
         last_leave: cluster.lastLeave ? formatDateTime(cluster.lastLeave) : "-",
+        arrive_time_earliest_clock: cluster.arriveTimeMinByClock ? formatTimeOfDay(cluster.arriveTimeMinByClock.dt) : "-",
+        arrive_time_earliest_raw: cluster.arriveTimeMinByClock?.raw || "-",
+        arrive_time_latest_clock: cluster.arriveTimeMaxByClock ? formatTimeOfDay(cluster.arriveTimeMaxByClock.dt) : "-",
+        arrive_time_latest_raw: cluster.arriveTimeMaxByClock?.raw || "-",
+        leave_time_earliest_clock: cluster.leaveTimeMinByClock ? formatTimeOfDay(cluster.leaveTimeMinByClock.dt) : "-",
+        leave_time_earliest_raw: cluster.leaveTimeMinByClock?.raw || "-",
+        leave_time_latest_clock: cluster.leaveTimeMaxByClock ? formatTimeOfDay(cluster.leaveTimeMaxByClock.dt) : "-",
+        leave_time_latest_raw: cluster.leaveTimeMaxByClock?.raw || "-",
+        longest_stay_text: cluster.longestStay ? formatDurationDhm(cluster.longestStay.durationMin) : "-",
+        longest_stay_raw: cluster.longestStay
+          ? `${cluster.longestStay.arriveRaw} 至 ${cluster.longestStay.leaveRaw}`
+          : "-",
+        shortest_stay_text: cluster.shortestStay ? formatDurationDhm(cluster.shortestStay.durationMin) : "-",
+        shortest_stay_raw: cluster.shortestStay
+          ? `${cluster.shortestStay.arriveRaw} 至 ${cluster.shortestStay.leaveRaw}`
+          : "-",
         share_pct: Number(sharePct.toFixed(1)),
         daily_freq: Number(dailyFreq.toFixed(2)),
         marker_radius: clamp(6 + Math.sqrt(cluster.visits) * 2.2, 6, 20),
-        label_text: `${cluster.visits}次｜${sharePct.toFixed(1)}%｜${dailyFreq.toFixed(2)}次/日`
+        label_text: `${cluster.visits}次｜${sharePct.toFixed(1)}%｜${dailyFreq.toFixed(2)}次/日`,
+        records: cluster.records.slice()
       };
     });
 
     return { clusters: normalized, assignments };
+  }
+
+  function buildParkingClusterRecordRowsHtml(records) {
+    const source = Array.isArray(records) ? records.slice() : [];
+    if (!source.length) {
+      return '<div class="parking-popup-record-empty">目前無詳細停車紀錄</div>';
+    }
+
+    source.sort((a, b) => {
+      const aTs = Number(a?.arrive_ts);
+      const bTs = Number(b?.arrive_ts);
+      if (Number.isFinite(aTs) && Number.isFinite(bTs)) return aTs - bTs;
+      if (Number.isFinite(aTs)) return -1;
+      if (Number.isFinite(bTs)) return 1;
+      return 0;
+    });
+
+    return `
+      <ol class="parking-popup-record-list">
+        ${source
+          .map(
+            (record, idx) =>
+              `<li><span class="parking-popup-record-index">#${idx + 1}</span><span class="parking-popup-record-time">${escapeHtml(
+                record.arrive_raw
+              )} ~ ${escapeHtml(record.leave_raw)}</span><span class="parking-popup-record-duration">${escapeHtml(
+                record.duration_text
+              )}</span></li>`
+          )
+          .join("")}
+      </ol>
+    `;
+  }
+
+  function buildParkingClusterPopupHtml(cluster) {
+    if (!cluster) return "<b>停車統計點</b>";
+    return `
+      <div class="parking-popup-block">
+        <div class="parking-popup-title">停車統計點</div>
+        <div>次數：${cluster.visits}</div>
+        <div>占比：${cluster.share_pct}%</div>
+        <div>日均：${cluster.daily_freq} 次/日</div>
+        <div>總停留：${escapeHtml(cluster.total_duration_hhmm)}</div>
+        <div>主要地點：${escapeHtml(cluster.closest_address || cluster.area || "未提供")}</div>
+        <button
+          type="button"
+          class="parking-popup-toggle-btn"
+          data-role="parking-popup-toggle"
+          data-cluster-index="${cluster.clusterIndex}"
+        >查看詳情</button>
+      </div>
+    `;
+  }
+
+  function buildParkingClusterDetailModalContent(cluster) {
+    const recordsHtml = buildParkingClusterRecordRowsHtml(cluster?.records);
+    return `
+      <div class="parking-popup-section">
+        <div class="parking-popup-section-title">抵達時間：</div>
+        <div>最早：${escapeHtml(cluster?.arrive_time_earliest_clock)} <span class="parking-popup-raw">(原始資料 ${escapeHtml(
+          cluster?.arrive_time_earliest_raw
+        )})</span></div>
+        <div>最晚：${escapeHtml(cluster?.arrive_time_latest_clock)} <span class="parking-popup-raw">(原始資料 ${escapeHtml(
+          cluster?.arrive_time_latest_raw
+        )})</span></div>
+      </div>
+      <div class="parking-popup-section">
+        <div class="parking-popup-section-title">離開時間：</div>
+        <div>最早：${escapeHtml(cluster?.leave_time_earliest_clock)} <span class="parking-popup-raw">(原始資料 ${escapeHtml(
+          cluster?.leave_time_earliest_raw
+        )})</span></div>
+        <div>最晚：${escapeHtml(cluster?.leave_time_latest_clock)} <span class="parking-popup-raw">(原始資料 ${escapeHtml(
+          cluster?.leave_time_latest_raw
+        )})</span></div>
+      </div>
+      <div class="parking-popup-section">
+        <div class="parking-popup-section-title">停留停車時間：</div>
+        <div>最長：${escapeHtml(cluster?.longest_stay_text)} <span class="parking-popup-raw">(原始資料 ${escapeHtml(
+          cluster?.longest_stay_raw
+        )})</span></div>
+        <div>最短：${escapeHtml(cluster?.shortest_stay_text)} <span class="parking-popup-raw">(原始資料 ${escapeHtml(
+          cluster?.shortest_stay_raw
+        )})</span></div>
+      </div>
+      <div class="parking-popup-section">
+        <div class="parking-popup-section-title">逐筆停車紀錄：</div>
+        ${recordsHtml}
+      </div>
+    `;
+  }
+
+  function showParkingDetailModal(cluster) {
+    if (!cluster) return;
+    const overlay = document.createElement("div");
+    overlay.className = "first-open-overlay parking-detail-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.innerHTML = `
+      <div class="first-open-modal parking-detail-modal">
+        <h3>停車詳細資訊</h3>
+        <p>統計點：${escapeHtml(cluster.closest_address || cluster.area || "未提供")}｜${cluster.visits} 次</p>
+        <div class="parking-detail-modal-content">
+          ${buildParkingClusterDetailModalContent(cluster)}
+        </div>
+        <button type="button" class="run-btn first-open-close" data-action="close">關閉</button>
+      </div>
+    `;
+
+    const onClose = () => {
+      overlay.classList.add("is-closing");
+      window.setTimeout(() => {
+        document.removeEventListener("keydown", onEscClose);
+        if (overlay.parentNode) {
+          overlay.parentNode.removeChild(overlay);
+        }
+      }, 180);
+    };
+
+    const onEscClose = (event) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) {
+        onClose();
+      }
+    });
+    overlay.querySelector("[data-action='close']")?.addEventListener("click", onClose);
+
+    document.body.appendChild(overlay);
+    document.addEventListener("keydown", onEscClose);
+    window.requestAnimationFrame(() => {
+      overlay.classList.add("is-open");
+    });
   }
 
   function withParkingMapProgrammaticMove(action, holdMs = 260) {
@@ -1555,6 +1876,23 @@
       if (state.parkingMapProgrammaticMove) return;
       state.parkingMapUserAdjusted = true;
     });
+
+    state.parkingMap.on("popupopen", (event) => {
+      const popupEl = event?.popup?.getElement?.();
+      if (!popupEl) return;
+      const toggleBtn = popupEl.querySelector("[data-role='parking-popup-toggle']");
+      if (!toggleBtn) return;
+      if (toggleBtn.dataset.bound === "1") return;
+      toggleBtn.dataset.bound = "1";
+
+      toggleBtn.addEventListener("click", () => {
+        const clusterIndex = Number(toggleBtn.getAttribute("data-cluster-index"));
+        if (!Number.isFinite(clusterIndex)) return;
+        const cluster = state.parkingClusterByIndex.get(clusterIndex);
+        if (!cluster) return;
+        showParkingDetailModal(cluster);
+      });
+    });
   }
 
   function renderParkingMapLegend(theme) {
@@ -1562,7 +1900,6 @@
     els.parkingMapLegend.innerHTML = `
       <span class="parking-legend-chip"><i style="background:${theme.rawColor};"></i>逐筆停留點</span>
       <span class="parking-legend-chip"><i style="background:${theme.clusterColor};border-color:${theme.clusterStroke};"></i>100m 統計點</span>
-      <span class="parking-legend-note">格式：次數｜占比｜日均</span>
     `;
   }
 
@@ -1587,6 +1924,7 @@
       stopParkingPlayback({ clearHighlight: true, resetIndex: true });
       state.parkingPlaybackSequence = [];
       state.parkingPlaybackMarkerByCluster = new Map();
+      state.parkingClusterByIndex = new Map();
       renderParkingPlaybackSelect([]);
       setParkingPlaybackControlsEnabled(false);
       updateParkingPlaybackCurrent("目前無可播放地點");
@@ -1601,6 +1939,7 @@
     const { clusters, assignments } = buildParkingClusters(validRows, PARKING_CLUSTER_RADIUS_M, analysisDays);
     const clusterByIndex = new Map(clusters.map((cluster) => [cluster.clusterIndex, cluster]));
     const clusterMarkerByIndex = new Map();
+    state.parkingClusterByIndex = clusterByIndex;
 
     if (els.parkingMapSummary) {
       els.parkingMapSummary.textContent = `地圖筆數：${validRows.length}（篩選：${range.label}；期間 ${analysisDays.toFixed(2)} 天）`;
@@ -1640,13 +1979,12 @@
           weight: 1.8
         });
 
-        marker.bindPopup(
-          `<b>停車統計點</b><br>次數：${cluster.visits}<br>占比：${cluster.share_pct}%<br>日均：${cluster.daily_freq} 次/日<br>總停留：${escapeHtml(
-            cluster.total_duration_hhmm
-          )}<br>主要地點：${escapeHtml(cluster.closest_address || cluster.area || "未提供")}<br>最早抵達：${escapeHtml(
-            cluster.first_arrive
-          )}<br>最晚離開：${escapeHtml(cluster.last_leave)}`
-        );
+        marker.bindPopup(buildParkingClusterPopupHtml(cluster), {
+          minWidth: 240,
+          maxWidth: 380,
+          className: "parking-detail-popup",
+          autoPanPadding: [28, 28]
+        });
 
         marker.bindTooltip(`<span class="parking-cluster-label">${escapeHtml(cluster.label_text)}</span>`, {
           permanent: true,
@@ -2364,8 +2702,9 @@ function setupTimelineControls(track) {
     const cleaningText = summary.cleaning_skipped
       ? "資料清洗：已略過（車輛辨識格式）"
       : `傳送門剔除 ${summary.teleportation_removed} 筆`;
+    const speedFilterText = `正常行駛速度門檻 ${summary.normal_speed_threshold_kmh} km/h，停留排除 ${summary.normal_speed_excluded} 筆`;
     setStatus(
-      `${sourceText}車牌 ${summary.plate_display}；原始 ${summary.raw_records} 筆，分析樣本 ${summary.clean_records} 筆；${cleaningText}${swappedNote}`,
+      `${sourceText}車牌 ${summary.plate_display}；原始 ${summary.raw_records} 筆，分析樣本 ${summary.clean_records} 筆；${cleaningText}；${speedFilterText}${swappedNote}`,
       "success"
     );
   }
@@ -2787,10 +3126,12 @@ function extractGeminiText(payload) {
     stopPlayback();
     setStatus("分析中...", "");
     const strict = Boolean(els.strictDistance?.checked);
+    const normalDrivingSpeedKmh = getNormalDrivingSpeedFromUi();
     const result = analyzeRecords(rows, {
       strictDistanceTeleport: strict,
       normalizedRows: options.rowsNormalized ? rows : undefined,
-      skipCleaning: Boolean(options.skipCleaning)
+      skipCleaning: Boolean(options.skipCleaning),
+      normalDrivingSpeedKmh
     });
     renderResult(result, sourceLabel);
   }
@@ -2876,6 +3217,9 @@ function extractGeminiText(payload) {
     });
     syncParkingSettingsUi();
     saveParkingSettings();
+    if (category === "custom") {
+      els.parkingSettingsPanel?.classList.remove("hidden");
+    }
     rerenderParkingIfReady();
   }
 
@@ -2892,6 +3236,18 @@ function extractGeminiText(payload) {
     syncParkingSettingsUi();
     saveParkingSettings();
     rerenderParkingIfReady();
+  }
+
+  function updateParkingAdvancedSettingsFromUi(options = {}) {
+    state.parkingSettings = normalizeParkingSettings({
+      ...state.parkingSettings,
+      popupOpacity: Number(els.parkingPopupOpacity?.value)
+    });
+    syncParkingSettingsUi();
+    saveParkingSettings();
+    if (options.rerender !== false) {
+      rerenderParkingIfReady();
+    }
   }
 
   function setOvernightMode(mode) {
@@ -2944,6 +3300,13 @@ function setActiveView(viewKey) {
     });
 
     els.analyzeForm?.addEventListener("submit", handleAnalyzeSubmit);
+    els.normalDrivingSpeed?.addEventListener("change", () => {
+      getNormalDrivingSpeedFromUi();
+    });
+    els.normalDrivingSpeedReset?.addEventListener("click", () => {
+      resetNormalDrivingSpeedToDefault();
+      getNormalDrivingSpeedFromUi();
+    });
 
     for (const radio of els.parkingDurationRadios) {
       radio.addEventListener("change", () => {
@@ -2951,7 +3314,13 @@ function setActiveView(viewKey) {
         updateParkingCategoryFromUi(radio.value);
       });
     }
+    els.parkingSettingsToggle?.addEventListener("click", () => {
+      els.parkingSettingsPanel?.classList.toggle("hidden");
+    });
     els.parkingCustomApply?.addEventListener("click", applyParkingCustomRange);
+    els.parkingPopupOpacity?.addEventListener("input", () => {
+      updateParkingAdvancedSettingsFromUi({ rerender: false });
+    });
     els.parkingPlaybackToggle?.addEventListener("click", toggleParkingPlayback);
     els.parkingPlaybackSpeed?.addEventListener("input", updateParkingPlaybackSpeedLabel);
     els.parkingPlaybackOrder?.addEventListener("change", () => {
@@ -3059,6 +3428,8 @@ function setActiveView(viewKey) {
     loadUserSettings();
     syncMapSettingsUi();
     syncParkingSettingsUi();
+    resetNormalDrivingSpeedToDefault();
+    getNormalDrivingSpeedFromUi();
     setParkingPlaybackControlsEnabled(false);
     setParkingPlaybackButtonUi(false);
     renderParkingPlaybackSelect([]);

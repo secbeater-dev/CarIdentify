@@ -121,6 +121,14 @@
             </label>
           </label>
 
+          <label class="control-group normal-speed-wrap">
+            <span>正常行駛速度篩選 (km/h)</span>
+            <div class="normal-speed-inline">
+              <input type="number" id="normal-driving-speed" min="1" max="150" step="1" value="40" aria-label="正常行駛速度 (km/h)">
+              <span class="normal-speed-default">預設 40</span>
+              <button type="button" id="normal-driving-speed-reset" class="ghost-btn small">套用預設</button>
+            </div>
+          </label>
           <button type="submit" class="run-btn">匯入資料並分析</button>
         </form>
       </header>
@@ -128,8 +136,7 @@
       <div id="status" class="status">請先匯入資料。</div>
 
       <section class="view" id="view-parking">
-        <div class="view-header-row">
-          <h2>停車分析</h2>
+        <div class="view-header-row parking-header-row">
           <div class="parking-inline-controls">
             <label class="parking-option">
               <input type="radio" name="parking-duration" value="4-6" id="parking-dur-4-6">
@@ -147,15 +154,31 @@
               <input type="radio" name="parking-duration" value="custom" id="parking-dur-custom">
               自訂
             </label>
-            <div class="parking-custom-inline">
-              <input type="number" id="parking-custom-min" min="0" value="10" class="small-input" aria-label="自訂最小分鐘">
-              <span>~</span>
-              <input type="number" id="parking-custom-max" min="0" value="60" class="small-input" aria-label="自訂最大分鐘">
-              <button type="button" id="parking-custom-apply" class="ghost-btn small">套用</button>
-            </div>
+          </div>
+          <div id="parking-count" class="counter parking-count-inline"></div>
+          <button id="parking-settings-toggle" class="gear-btn parking-gear-btn" type="button" title="停車進階設定">
+            <span class="material-symbols-rounded">settings</span>
+          </button>
+        </div>
+        <div id="parking-settings-panel" class="settings-panel parking-settings-panel hidden">
+          <h3>停車進階設定</h3>
+          <div class="settings-grid parking-settings-grid">
+            <label class="settings-item parking-settings-item">
+              <span>自訂停留時間區間 (分鐘)</span>
+              <div class="parking-custom-inline">
+                <input type="number" id="parking-custom-min" min="0" value="360" class="small-input" aria-label="自訂最小分鐘">
+                <span>~</span>
+                <input type="number" id="parking-custom-max" min="0" value="99999" class="small-input" aria-label="自訂最大分鐘">
+                <button type="button" id="parking-custom-apply" class="ghost-btn small">套用</button>
+              </div>
+            </label>
+            <label class="settings-item parking-settings-item">
+              <span>停車資訊透明度</span>
+              <input type="range" id="parking-popup-opacity" min="35" max="100" step="5" value="65">
+              <span id="parking-popup-opacity-label">65%</span>
+            </label>
           </div>
         </div>
-        <div id="parking-count" class="counter"></div>
         <div class="parking-map-panel">
           <div class="parking-map-meta">
             <div class="parking-playback-controls">
@@ -386,3 +409,4 @@
   <script src="./static/app.js?v=20260324a"></script>
 </body>
 </html>
+
