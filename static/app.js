@@ -14,7 +14,7 @@
   };
 
   const GEMINI_ENDPOINT_DEFAULT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
-  const FIRST_OPEN_NOTICE_KEY = "sb-first-open-notice-20260331-update-b";
+  const FIRST_OPEN_NOTICE_KEY = "sb-first-open-notice-20260401-update-a";
   const MAP_SETTINGS_KEY = "caridentify-map-settings";
   const PARKING_SETTINGS_KEY = "caridentify-parking-settings";
   const OVERNIGHT_MODE_NIGHT = "night";
@@ -134,7 +134,6 @@
     parkingPopupOpacity: document.getElementById("parking-popup-opacity"),
     parkingPopupOpacityLabel: document.getElementById("parking-popup-opacity-label"),
     parkingMap: document.getElementById("parking-map"),
-    parkingPlaybackOrder: document.getElementById("parking-playback-order"),
     parkingPlaybackSelect: document.getElementById("parking-playback-select"),
     parkingPlaybackToggle: document.getElementById("parking-playback-toggle"),
     parkingPlaybackSpeed: document.getElementById("parking-playback-speed"),
@@ -448,11 +447,11 @@
         <h3>使用提醒</h3>
         <p>除 AI 功能外，資料均在本地運行，請安心使用。</p>
         <p>有任何需求可以私訊 <a href="https://t.me/secbeater" target="_blank" rel="noopener noreferrer">SecBetaer</a></p>
-        <h4>今日更新（2026-03-31）</h4>
+        <h4>今日更新（2026-04-01）</h4>
         <ul class="first-open-changes">
-          <li>停車詳細資訊改為獨立視窗顯示，避免地圖 popup 過大。</li>
-          <li>停車篩選列重排：筆數已移至時間區間與齒輪之間。</li>
-          <li>齒輪面板精簡：移除標註格式，透明度預設 65%，自訂區間預設 360~99999。</li>
+          <li>停車分析上方控制列整併為同一行，查看更直覺。</li>
+          <li>播放排序選項已移除，播放順序固定為次數優先。</li>
+          <li>地圖上方案件/地圖筆數/圖例資訊列已隱藏，畫面更精簡。</li>
           <li>提供一鍵更新：清除本機相關設定並重新載入最新版。</li>
         </ul>
         <p class="first-open-note">備註：一鍵更新會清除本機設定（地圖/停車/彈窗狀態），並強制重載最新版（等同 Ctrl+F5）。</p>
@@ -1665,7 +1664,6 @@
     const active = Boolean(enabled);
     if (els.parkingPlaybackToggle) els.parkingPlaybackToggle.disabled = !active;
     if (els.parkingPlaybackSpeed) els.parkingPlaybackSpeed.disabled = !active;
-    if (els.parkingPlaybackOrder) els.parkingPlaybackOrder.disabled = !active;
     if (els.parkingPlaybackSelect) els.parkingPlaybackSelect.disabled = !active;
   }
 
@@ -1679,14 +1677,6 @@
     if (els.parkingPlaybackSpeedLabel) {
       els.parkingPlaybackSpeedLabel.textContent = `${value.toFixed(1)}x`;
     }
-  }
-
-  function getParkingPlaybackOrder() {
-    return String(els.parkingPlaybackOrder?.value || "visits") === "frequency" ? "frequency" : "visits";
-  }
-
-  function getParkingPlaybackOrderLabel() {
-    return getParkingPlaybackOrder() === "frequency" ? "頻率優先" : "次數優先";
   }
 
   function renderParkingPlaybackSelect(sequence) {
@@ -1712,15 +1702,6 @@
 
   function getParkingPlaybackSequence(clusters) {
     const source = Array.isArray(clusters) ? clusters.slice() : [];
-    if (getParkingPlaybackOrder() === "frequency") {
-      return source.sort((a, b) => {
-        if (b.daily_freq !== a.daily_freq) return b.daily_freq - a.daily_freq;
-        if (b.share_pct !== a.share_pct) return b.share_pct - a.share_pct;
-        if (b.visits !== a.visits) return b.visits - a.visits;
-        return b.total_duration_min - a.total_duration_min;
-      });
-    }
-
     return source.sort((a, b) => {
       if (b.visits !== a.visits) return b.visits - a.visits;
       if (b.daily_freq !== a.daily_freq) return b.daily_freq - a.daily_freq;
@@ -1808,7 +1789,7 @@
     marker?.openPopup();
 
     updateParkingPlaybackCurrent(
-      `案件 ${clamped + 1}/${seq.length}｜${getParkingPlaybackOrderLabel()}｜${cluster.visits}次｜${cluster.share_pct}%｜${cluster.daily_freq}/日`
+      `案件 ${clamped + 1}/${seq.length}｜${cluster.visits}次｜${cluster.share_pct}%｜${cluster.daily_freq}/日`
     );
 
     await focusParkingCluster(cluster, options.focus !== false);
@@ -3323,10 +3304,6 @@ function setActiveView(viewKey) {
     });
     els.parkingPlaybackToggle?.addEventListener("click", toggleParkingPlayback);
     els.parkingPlaybackSpeed?.addEventListener("input", updateParkingPlaybackSpeedLabel);
-    els.parkingPlaybackOrder?.addEventListener("change", () => {
-      stopParkingPlayback({ clearHighlight: true, resetIndex: true });
-      rerenderParkingIfReady();
-    });
     els.parkingPlaybackSelect?.addEventListener("change", async (event) => {
       stopParkingPlayback({ clearHighlight: true, resetIndex: false });
       const idx = Number(event.target.value);

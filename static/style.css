@@ -516,17 +516,26 @@ h3 {
 
 .parking-header-row {
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.parking-header-row > * {
+  flex: 0 0 auto;
 }
 
 .parking-inline-controls {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
-  flex: 1 1 auto;
+}
+
+.parking-playback-inline {
+  margin-left: 2px;
 }
 
 .parking-gear-btn {
@@ -617,28 +626,14 @@ h3 {
   align-items: center;
   gap: 6px;
   flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: 2px;
+  overflow-x: visible;
+  padding-bottom: 0;
 }
 
 .parking-playback-controls > * {
   flex: 0 0 auto;
 }
 
-.parking-playback-order-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid #4f4f4f;
-  border-radius: 10px;
-  background: #181818;
-  color: #efefef;
-  padding: 4px 9px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.parking-playback-order-wrap select,
 .parking-playback-case-wrap select {
   border: 1px solid #595959;
   border-radius: 8px;
@@ -646,10 +641,6 @@ h3 {
   color: #f4f4f4;
   height: 28px;
   padding: 0 7px;
-}
-
-.parking-playback-order-wrap select {
-  width: 102px;
 }
 
 .parking-playback-case-wrap {
@@ -1637,6 +1628,7 @@ h3 {
 
   .parking-inline-controls {
     width: 100%;
+    flex-wrap: wrap;
     justify-content: flex-start;
   }
 
@@ -1659,14 +1651,12 @@ h3 {
     overflow-x: visible;
   }
 
-  .parking-playback-order-wrap,
   .parking-playback-case-wrap,
   .parking-playback-speed {
     width: 100%;
     justify-content: space-between;
   }
 
-  .parking-playback-order-wrap select,
   .parking-playback-case-wrap select,
   .parking-playback-speed input[type="range"] {
     flex: 1;
