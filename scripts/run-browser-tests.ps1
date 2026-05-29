@@ -4,13 +4,15 @@ param(
   [string]$BaseUrl = '',
   [string]$XlsxPath = 'H:\CarIdentify\pegion_Car_Identfy.xlsx',
   [string]$CsvPath = 'H:\CarIdentify\Pegion_Freeway_ETC_Record.csv',
-  [string]$IdkcityPath = 'H:\CarIdentify\Pegion_IDKCity_Car_Identfy.xlsx'
+  [string]$IdkcityPath = 'H:\CarIdentify\Pegion_IDKCity_Car_Identfy.xlsx',
+  [string]$CombinedCoordPath = '',
+  [string[]]$Cases = @()
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = 'H:\CarIdentify\CarIdentify'
+$repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
   $BaseUrl = "http://127.0.0.1:$ServerPort/"
 }
@@ -75,7 +77,8 @@ function Invoke-EdgeCase(
   [string]$NodePath,
   [string]$ResolvedXlsx,
   [string]$ResolvedCsv,
-  [string]$ResolvedIdkcity
+  [string]$ResolvedIdkcity,
+  [string]$ResolvedCombinedCoord
 ) {
   if (Test-Path $ProfileDir) {
     Remove-Item -LiteralPath $ProfileDir -Recurse -Force
@@ -97,13 +100,20 @@ function Invoke-EdgeCase(
     $edgeProcess = Start-Process -FilePath $EdgePath -ArgumentList $edgeArgs -WorkingDirectory $repoRoot -PassThru
     Wait-HttpOk -Url "http://127.0.0.1:$DebugPort/json/version" -TimeoutSeconds 20
 
-    & $NodePath "$repoRoot\scripts\browser-cdp-tests.mjs" `
-      --base-url $BaseUrl `
-      --debug-port $DebugPort `
-      --xlsx $ResolvedXlsx `
-      --csv $ResolvedCsv `
-      --idkcity $ResolvedIdkcity `
-      --case $CaseName 2>&1 | ForEach-Object { Write-Host $_ }
+    $nodeArgs = @(
+      "$repoRoot\scripts\browser-cdp-tests.mjs",
+      '--base-url', $BaseUrl,
+      '--debug-port', $DebugPort,
+      '--xlsx', $ResolvedXlsx,
+      '--csv', $ResolvedCsv,
+      '--idkcity', $ResolvedIdkcity,
+      '--case', $CaseName
+    )
+    if (-not [string]::IsNullOrWhiteSpace($ResolvedCombinedCoord)) {
+      $nodeArgs += @('--combined-coord', $ResolvedCombinedCoord)
+    }
+
+    & $NodePath @nodeArgs 2>&1 | ForEach-Object { Write-Host $_ }
 
     return $LASTEXITCODE
   } finally {
@@ -135,9 +145,21 @@ if (-not $nodePath) {
 }
 
 $edgePath = Get-EdgePath
-$resolvedXlsx = (Resolve-Path $XlsxPath).Path
-$resolvedCsv = (Resolve-Path $CsvPath).Path
-$resolvedIdkcity = (Resolve-Path $IdkcityPath).Path
+
+function Resolve-OptionalPath([string]$PathValue) {
+  if ([string]::IsNullOrWhiteSpace($PathValue)) {
+    return ''
+  }
+  if (Test-Path -LiteralPath $PathValue) {
+    return (Resolve-Path -LiteralPath $PathValue).Path
+  }
+  return $PathValue
+}
+
+$resolvedXlsx = Resolve-OptionalPath $XlsxPath
+$resolvedCsv = Resolve-OptionalPath $CsvPath
+$resolvedIdkcity = Resolve-OptionalPath $IdkcityPath
+$resolvedCombinedCoord = Resolve-OptionalPath $CombinedCoordPath
 
 $pythonArgs = if ((Split-Path $pythonPath -Leaf).ToLowerInvariant() -eq 'py.exe') {
   @('-3', '-m', 'http.server', $ServerPort)
@@ -146,7 +168,18 @@ $pythonArgs = if ((Split-Path $pythonPath -Leaf).ToLowerInvariant() -eq 'py.exe'
 }
 
 $pythonProcess = $null
-$cases = @('startup-dom', 'xlsx-single', 'csv-single', 'merged-upload', 'idkcity-single')
+$standardCases = @('startup-dom', 'xlsx-single', 'csv-single', 'merged-upload', 'idkcity-single')
+$hasStandardFiles = (Test-Path -LiteralPath $XlsxPath) -and (Test-Path -LiteralPath $CsvPath) -and (Test-Path -LiteralPath $IdkcityPath)
+if ($Cases.Count -gt 0) {
+  $cases = $Cases
+} elseif ($hasStandardFiles) {
+  $cases = $standardCases
+} else {
+  $cases = @('startup-dom')
+}
+if (-not [string]::IsNullOrWhiteSpace($resolvedCombinedCoord) -and $cases -notcontains 'combined-coordinate-sensitive') {
+  $cases += 'combined-coordinate-sensitive'
+}
 $results = @()
 
 try {
@@ -162,7 +195,8 @@ try {
       -NodePath $nodePath `
       -ResolvedXlsx $resolvedXlsx `
       -ResolvedCsv $resolvedCsv `
-      -ResolvedIdkcity $resolvedIdkcity
+      -ResolvedIdkcity $resolvedIdkcity `
+      -ResolvedCombinedCoord $resolvedCombinedCoord
     $results += [pscustomobject]@{
       CaseName = $caseName
       ExitCode = $exitCode

@@ -19,11 +19,27 @@ const debugPort = Number(args["debug-port"] || 9223);
 const xlsxPath = path.resolve(String(args.xlsx || "H:/CarIdentify/pegion_Car_Identfy.xlsx"));
 const csvPath = path.resolve(String(args.csv || "H:/CarIdentify/Pegion_Freeway_ETC_Record.csv"));
 const idkcityPath = path.resolve(String(args.idkcity || "H:/CarIdentify/Pegion_IDKCity_Car_Identfy.xlsx"));
+const combinedCoordPath = args["combined-coord"] ? path.resolve(String(args["combined-coord"])) : "";
 const timeoutMs = Number(args.timeout || 30000);
 const requestedCase = args.case ? String(args.case) : "";
 const MODULE_VERSION = "20260408e";
 
-for (const filePath of [xlsxPath, csvPath, idkcityPath]) {
+const requiredFilesByCase = {
+  "xlsx-single": [xlsxPath],
+  "csv-single": [csvPath],
+  "merged-upload": [xlsxPath, csvPath],
+  "idkcity-single": [idkcityPath],
+  "combined-coordinate-sensitive": [combinedCoordPath]
+};
+const requiredFiles = requestedCase
+  ? requiredFilesByCase[requestedCase] || []
+  : [xlsxPath, csvPath, idkcityPath].concat(combinedCoordPath ? [combinedCoordPath] : []);
+
+for (const filePath of requiredFiles) {
+  if (!filePath) {
+    console.error(`Missing path for test case: ${requestedCase || "full suite"}`);
+    process.exit(1);
+  }
   if (!fs.existsSync(filePath)) {
     console.error(`Missing test file: ${filePath}`);
     process.exit(1);
@@ -485,6 +501,15 @@ async function assertStatusSuccess(client, expectedNeedle) {
   return status;
 }
 
+async function assertSensitiveAnalysisSuccess(client) {
+  const status = await waitForAnalysisComplete(client);
+  if (status.className.includes("error")) {
+    throw new Error("Sensitive workbook analysis failed; status text redacted.");
+  }
+  assertCondition(status.className.includes("success"), `Sensitive workbook status should be success, got ${status.className}`);
+  return status;
+}
+
 async function assertCountText(client, selector, expectedText) {
   const deadline = Date.now() + 15000;
   let actual = "";
@@ -799,6 +824,29 @@ async function testIdkcitySingle(client) {
   await waitForMapMode(client, "#routine-map", "leaflet");
 }
 
+async function testCombinedCoordinateSensitive(client) {
+  await waitForPageReady(client);
+  await closeFirstOpenOverlayIfPresent(client);
+  await uploadAndAnalyze(client, [combinedCoordPath]);
+  await assertSensitiveAnalysisSuccess(client);
+
+  const snapshot = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+    const summary = state.analysis?.summary || {};
+    const track = Array.isArray(state.analysis?.map?.track) ? state.analysis.map.track : [];
+    return {
+      hasAnalysis: Boolean(state.analysis),
+      hasEnoughRecords: Number(summary.raw_records) >= 2 && Number(summary.clean_records) >= 2 && track.length >= 2,
+      hasFiniteTrackCoordinates: track.every((row) => Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lon))),
+      cleaningSkipped: Boolean(summary.cleaning_skipped)
+    };
+  })`);
+
+  assertCondition(Boolean(snapshot?.hasAnalysis), "Sensitive analysis state missing");
+  assertCondition(Boolean(snapshot?.hasEnoughRecords), "Sensitive analysis did not produce enough normalized records");
+  assertCondition(Boolean(snapshot?.hasFiniteTrackCoordinates), "Sensitive analysis produced invalid coordinates");
+  assertCondition(snapshot?.cleaningSkipped === false, "Combined coordinate format should not skip cleaning");
+}
+
 async function main() {
   const results = [];
   const pageWsUrl = await getPageWebSocketUrl();
@@ -814,11 +862,15 @@ async function main() {
     ["xlsx-single", testXlsxSingle],
     ["csv-single", testCsvSingle],
     ["merged-upload", testMergedUpload],
-    ["idkcity-single", testIdkcitySingle]
+    ["idkcity-single", testIdkcitySingle],
+    ["combined-coordinate-sensitive", testCombinedCoordinateSensitive]
   ];
+  const availableTests = combinedCoordPath
+    ? tests
+    : tests.filter(([name]) => name !== "combined-coordinate-sensitive");
   const selectedTests = requestedCase
-    ? tests.filter(([name]) => name === requestedCase)
-    : tests;
+    ? availableTests.filter(([name]) => name === requestedCase)
+    : availableTests;
 
   if (requestedCase && selectedTests.length === 0) {
     throw new Error(`Unknown test case: ${requestedCase}`);
@@ -832,8 +884,11 @@ async function main() {
         console.log(`PASS ${name}`);
       } catch (error) {
         const status = await queryStatus(client).catch(() => ({ text: "<unavailable>", className: "<unavailable>" }));
-        results.push({ name, ok: false, error: error.message, status });
-        console.log(`FAIL ${name} | ${error.message} | status=${JSON.stringify(status)}`);
+        const isSensitiveCase = name.includes("sensitive");
+        const safeError = isSensitiveCase ? "Sensitive test failed; details redacted" : error.message;
+        const safeStatus = isSensitiveCase ? { text: "<redacted>", className: status.className } : status;
+        results.push({ name, ok: false, error: safeError, status: safeStatus });
+        console.log(`FAIL ${name} | ${safeError} | status=${JSON.stringify(safeStatus)}`);
       }
     }
   } finally {

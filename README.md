@@ -122,6 +122,26 @@ CarIdentify/
   - `id = 攝影機`
 - 這個格式走一般分析流程，不是 `vehicle_recognition`
 
+### `combined_coordinate`
+
+- 支援只有合併座標欄的 Excel / CSV 車輛辨識資料
+- 需要的核心標頭：
+  - `編號`
+  - `車號`
+  - `時間`
+  - `來源`
+  - `備註`
+  - `經緯度`
+- 正規化對應：
+  - `plate = 車號`
+  - `timestamp = 時間`
+  - `source = 來源`
+  - `note = 備註`
+  - `id = 編號`
+  - `lon/lat = 經緯度`
+- `經緯度` 可為 `經度, 緯度` 或 `緯度, 經度`，系統會依台灣常見座標範圍判斷順序
+- 這個格式走一般分析流程，不是 `vehicle_recognition`
+
 ## 功能摘要
 
 - 多檔上傳 `.xlsx` / `.xls` / `.csv`
@@ -147,7 +167,7 @@ CarIdentify/
 
 ## 真實分析規則
 
-- 必要欄位：`plate`、`timestamp`、`lon`、`lat`
+- 必要欄位：`plate`、`timestamp`，以及 `lon` / `lat` 或合併座標欄 `coord`
 - 可選欄位：`id`、`source`、`note`
 - 停留判定：相鄰乾淨資料點 `dt > 4 分鐘`、`距離 >= 5 公尺`、`speed < normalDrivingSpeedKmh`
 - 正常行駛速度門檻預設 `40 km/h`，UI 可調 `1–150 km/h`
@@ -211,8 +231,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File H:\CarIdentify\CarIdentify\s
 - `csv-single`
 - `merged-upload`
 - `idkcity-single`
+- `combined-coordinate-sensitive`（需額外指定私有測試檔路徑，不會輸出資料內容）
 
 現行基準：`5/5 passed`
+
+若要驗證合併座標欄格式，可額外指定檔案路徑：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.ps1 -CombinedCoordPath <path-to-private-xlsx>
+```
 
 ## GitHub Pages
 

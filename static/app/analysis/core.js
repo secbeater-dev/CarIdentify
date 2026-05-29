@@ -1,4 +1,4 @@
-﻿import {
+import {
   DEFAULT_NORMAL_DRIVING_SPEED_KMH,
   HOME
 } from "../shared/constants.js?v=20260408e";
@@ -10,9 +10,7 @@ import {
   normalizePlate,
   overlapDayHours,
   overlapNightHours,
-  pad2,
   parseRocDateTime,
-  rowsToCsv,
   toNumber
 } from "../shared/utils.js?v=20260408e";
 
@@ -25,13 +23,14 @@ export function normalizeHeaderKey(value) {
 
 export function columnAliases() {
   return {
-    id: ["蝺刻?", "id", "serial", "摨?"],
-    plate: ["頠?", "頠?", "plate", "頠??Ⅳ"],
-    timestamp: ["??", "time", "timestamp", "?交???", "颲刻???", "?菜葫?交?"],
-    lon: ["蝬漲", "longitude", "lon", "lng", "x"],
-    lat: ["蝺臬漲", "latitude", "lat", "y"],
-    source: ["靘?", "蝮??", "source", "city", "銵?", "??蝟餌絞", "銵脫??, "??嗅?蝔?],
-    note: ["?酉", "?啣?", "頝臬", "location", "place", "??, "??嗅?蝔?, "??蝟餌絞", "銵脫??]
+    id: ["編號", "id", "serial", "序號"],
+    plate: ["車號", "車牌", "plate", "車牌號碼"],
+    timestamp: ["時間", "time", "timestamp", "日期時間", "辨識時間", "偵測日期"],
+    coord: ["經緯度", "座標", "坐標", "coordinates", "coordinate", "latlon", "lonlat", "gps"],
+    lon: ["經度", "longitude", "lon", "lng", "x"],
+    lat: ["緯度", "latitude", "lat", "y"],
+    source: ["來源", "縣市", "source", "city", "行政區", "國道系統", "行進方向", "門架名稱"],
+    note: ["備註", "地址", "路口", "location", "place", "備考", "門架名稱", "國道系統", "行進方向"]
   };
 }
 
@@ -49,20 +48,24 @@ export function detectDatasetFormat(rows) {
   }
   const has = (name) => keys.includes(normalizeHeaderKey(name));
   const isIdkcityCamera = [
-    "頠楚蝺刻?",
-    "?蔣璈?蝔?,
-    "頠?",
-    "?桐?",
-    "?交?",
-    "??",
-    "?蔣璈?,
-    "蝬漲",
-    "蝺臬漲"
+    "軌跡編號",
+    "攝影機名稱",
+    "車牌",
+    "單位",
+    "日期",
+    "時間",
+    "攝影機",
+    "經度",
+    "緯度"
   ].every((name) => has(name));
   if (isIdkcityCamera) {
     return "idkcity_camera";
   }
-  if (has("?菜葫?交?") && has("??嗅?蝔?) && (has("eTag摨?") || has("??蝟餌絞") || has("頠??Ⅳ"))) {
+  const isCombinedCoordinate = ["編號", "車號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
+  if (isCombinedCoordinate) {
+    return "combined_coordinate";
+  }
+  if (has("偵測日期") && has("門架名稱") && (has("eTag序號") || has("國道系統") || has("車牌號碼"))) {
     return "vehicle_recognition";
   }
   return "generic";
@@ -90,7 +93,7 @@ function resolveNormalizedColumns(rows, requiredMap) {
   for (const [logicalKey, displayName] of Object.entries(requiredMap)) {
     const actualKey = normalizedMap.get(normalizeHeaderKey(displayName));
     if (!actualKey) {
-      throw new Error(`蝻箏?敹?甈?: ${displayName}`);
+      throw new Error(`缺少必要欄位: ${displayName}`);
     }
     resolved[logicalKey] = actualKey;
   }
@@ -159,17 +162,46 @@ function combineDateAndTime(dateRaw, timeRaw) {
   return null;
 }
 
+function parseCoordinatePair(value) {
+  const matches = String(value ?? "").match(/[-+]?\d+(?:\.\d+)?/g);
+  if (!matches || matches.length < 2) {
+    return { lon: NaN, lat: NaN };
+  }
+
+  const first = Number.parseFloat(matches[0]);
+  const second = Number.parseFloat(matches[1]);
+  if (!Number.isFinite(first) || !Number.isFinite(second)) {
+    return { lon: NaN, lat: NaN };
+  }
+
+  const looksLikeTaiwanLon = (num) => num >= 110 && num <= 130;
+  const looksLikeTaiwanLat = (num) => num >= 20 && num <= 30;
+  if (looksLikeTaiwanLon(first) && looksLikeTaiwanLat(second)) {
+    return { lon: first, lat: second };
+  }
+  if (looksLikeTaiwanLat(first) && looksLikeTaiwanLon(second)) {
+    return { lon: second, lat: first };
+  }
+  if (Math.abs(first) > 90 && Math.abs(second) <= 90) {
+    return { lon: first, lat: second };
+  }
+  if (Math.abs(second) > 90 && Math.abs(first) <= 90) {
+    return { lon: second, lat: first };
+  }
+  return { lon: first, lat: second };
+}
+
 function normalizeIdkcityRows(rawRows) {
   const columns = resolveNormalizedColumns(rawRows, {
-    trackId: "頠楚蝺刻?",
-    cameraName: "?蔣璈?蝔?,
-    plate: "頠?",
-    unit: "?桐?",
-    date: "?交?",
-    time: "??",
-    cameraId: "?蔣璈?,
-    lon: "蝬漲",
-    lat: "蝺臬漲"
+    trackId: "軌跡編號",
+    cameraName: "攝影機名稱",
+    plate: "車牌",
+    unit: "單位",
+    date: "日期",
+    time: "時間",
+    cameraId: "攝影機",
+    lon: "經度",
+    lat: "緯度"
   });
 
   const output = rawRows.map((row, idx) => {
@@ -180,7 +212,7 @@ function normalizeIdkcityRows(rawRows) {
     const dateRaw = row?.[columns.date];
     const timeRaw = row?.[columns.time];
     const timestamp = combineDateAndTime(dateRaw, timeRaw);
-    const source = String(row?.[columns.unit] ?? "").trim() || "?芣?靘?;
+    const source = String(row?.[columns.unit] ?? "").trim() || "未提供";
     const note = String(row?.[columns.cameraName] ?? "").trim() || source;
     const timestampRaw = `${String(dateRaw ?? "").trim()} ${String(timeRaw ?? "").trim()}`.trim();
 
@@ -225,7 +257,7 @@ export function detectColumns(rows) {
   const selected = {};
   const aliases = columnAliases();
   Object.entries(aliases).forEach(([std, aliasList]) => {
-    const normalizedAliases = aliasList.map((item) => normalizeHeaderKey(item));
+    const normalizedAliases = aliasList.map((a) => normalizeHeaderKey(a));
     let hit = null;
 
     for (const alias of normalizedAliases) {
@@ -236,6 +268,9 @@ export function detectColumns(rows) {
     }
     if (!hit) {
       for (const key of keys) {
+        if ((std === "lon" || std === "lat") && selected.coord && key === selected.coord) {
+          continue;
+        }
         const nk = normalizeHeaderKey(key);
         if (normalizedAliases.some((alias) => nk.includes(alias) || alias.includes(nk))) {
           hit = key;
@@ -246,6 +281,7 @@ export function detectColumns(rows) {
     if (hit) selected[std] = hit;
   });
 
+  // Fallback: infer timestamp column from values when header aliases are not reliable.
   if (!selected.timestamp) {
     let bestKey = "";
     let bestScore = -1;
@@ -274,10 +310,13 @@ export function detectColumns(rows) {
     }
   }
 
-  const required = ["plate", "timestamp", "lon", "lat"];
-  const missing = required.filter((key) => !selected[key]);
+  const missing = ["plate", "timestamp"].filter((key) => !selected[key]);
+  if (!selected.coord) {
+    if (!selected.lon) missing.push("lon");
+    if (!selected.lat) missing.push("lat");
+  }
   if (missing.length) {
-    throw new Error(`蝻箏?敹?甈?: ${missing.join(", ")}`);
+    throw new Error(`缺少必要欄位: ${missing.join(", ")}`);
   }
   return selected;
 }
@@ -291,11 +330,11 @@ function median(values) {
 }
 
 function smartSwapCoordinates(rows) {
-  const valid = rows.filter((row) => row.lon > 0 && row.lat > 0);
+  const valid = rows.filter((r) => r.lon > 0 && r.lat > 0);
   if (!valid.length) return { rows, swapped: false };
 
-  const lonMed = median(valid.map((row) => row.lon));
-  const latMed = median(valid.map((row) => row.lat));
+  const lonMed = median(valid.map((r) => r.lon));
+  const latMed = median(valid.map((r) => r.lat));
   const looksSwapped = lonMed >= 20 && lonMed <= 30 && latMed >= 110 && latMed <= 130;
   if (!looksSwapped) return { rows, swapped: false };
 
@@ -322,12 +361,13 @@ export function normalizeRows(rawRows) {
   const output = rawRows.map((row, idx) => {
     const idRaw = selected.id ? row[selected.id] : idx + 1;
     const idNum = Number.parseInt(idRaw, 10);
-    const lon = toNumber(row[selected.lon]);
-    const lat = toNumber(row[selected.lat]);
+    const coordinatePair = selected.coord ? parseCoordinatePair(row[selected.coord]) : null;
+    const lon = coordinatePair ? coordinatePair.lon : toNumber(row[selected.lon]);
+    const lat = coordinatePair ? coordinatePair.lat : toNumber(row[selected.lat]);
 
     const sourceRaw = selected.source ? row[selected.source] : "";
     const noteRaw = selected.note ? row[selected.note] : "";
-    const source = String(sourceRaw ?? "").trim() || "?芣?靘?;
+    const source = String(sourceRaw ?? "").trim() || "未提供";
     const note = String(noteRaw ?? "").trim();
 
     return {
@@ -343,7 +383,7 @@ export function normalizeRows(rawRows) {
     };
   });
 
-  const parsed = output.filter((row) => row.timestamp instanceof Date && !Number.isNaN(row.timestamp.getTime()));
+  const parsed = output.filter((r) => r.timestamp instanceof Date && !Number.isNaN(r.timestamp.getTime()));
   if (!parsed.length) {
     throw new Error("Timestamp parsing failed.");
   }
@@ -379,6 +419,7 @@ function clusterPoints(stays, radiusM = 300) {
     assigned.points.push(stay);
     assigned.visits += 1;
     assigned.durationMin += stay.duration_min;
+
     assigned.areaCounter.set(stay.area, (assigned.areaCounter.get(stay.area) || 0) + 1);
     assigned.addrCounter.set(stay.closest_address, (assigned.addrCounter.get(stay.closest_address) || 0) + 1);
 
@@ -388,7 +429,7 @@ function clusterPoints(stays, radiusM = 300) {
   }
 
   const topEntry = (counterMap) => {
-    let bestKey = "?芣?靘?;
+    let bestKey = "未提供";
     let bestVal = -1;
     for (const [key, value] of counterMap.entries()) {
       if (value > bestVal) {
@@ -415,6 +456,26 @@ function clusterPoints(stays, radiusM = 300) {
       area: topEntry(cluster.areaCounter),
       closest_address: topEntry(cluster.addrCounter)
     }));
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  if (/[",\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, "\"\"")}"`;
+  }
+  return text;
+}
+
+function rowsToCsv(rows, headers) {
+  if (!rows.length) {
+    return "\uFEFF";
+  }
+  const columns = headers || Object.keys(rows[0]);
+  const lines = [columns.join(",")];
+  for (const row of rows) {
+    lines.push(columns.map((key) => csvEscape(row[key])).join(","));
+  }
+  return `\uFEFF${lines.join("\r\n")}`;
 }
 
 export function analyzeRecords(rawRows, options = {}) {
@@ -569,10 +630,10 @@ export function analyzeRecords(rawRows, options = {}) {
       leave_time: formatDateTime(b.timestamp),
       duration_min: Number(dtMin.toFixed(2)),
       duration_hhmm: formatDuration(dtMin),
-      area: a.source || "?芣?靘?,
+      area: a.source || "未提供",
       lon: Number(a.lon.toFixed(6)),
       lat: Number(a.lat.toFixed(6)),
-      closest_address: a.note || a.source || "?芣?靘?,
+      closest_address: a.note || a.source || "未提供",
       distance_to_next_m: Number(distM.toFixed(1)),
       speed_kmh: Number(speedKmh.toFixed(2)),
       is_breakpoint_6h: dtMin >= 360,
@@ -583,13 +644,13 @@ export function analyzeRecords(rawRows, options = {}) {
     };
 
     if (dtMin >= 1440) {
-      stay.stay_type = "?瑟??(>=24h)";
+      stay.stay_type = "長期停放(>=24h)";
     } else if (dtMin >= 360) {
-      stay.stay_type = "??暺?>=6h)";
+      stay.stay_type = "停駐點(>=6h)";
     } else if (dtMin >= 60) {
-      stay.stay_type = "??暺?1-6h)";
+      stay.stay_type = "停留點(1-6h)";
     } else {
-      stay.stay_type = "??暺?>4m)";
+      stay.stay_type = "停留點(>4m)";
     }
 
     stays.push(stay);
@@ -599,7 +660,7 @@ export function analyzeRecords(rawRows, options = {}) {
   }
 
   const hotspots = clusterPoints(stays, 300).slice(0, 50);
-  const parking60 = stays.filter((item) => item.duration_min >= 60);
+  const parking60 = stays.filter((s) => s.duration_min >= 60);
 
   const hourlyCounts = Array(24).fill(0);
   for (const row of clean) {
@@ -635,60 +696,60 @@ export function analyzeRecords(rawRows, options = {}) {
       lat: row.lat,
       lon: row.lon,
       time: formatDateTime(row.timestamp),
-      area: row.source || "?芣?靘?,
-      address: row.note || row.source || "?芣?靘?,
+      area: row.source || "未提供",
+      address: row.note || row.source || "未提供",
       timestamp_ms: row.timestamp.getTime()
     })),
-    stays: stays.map((item) => ({
-      start_id: item.start_id,
-      next_id: item.next_id,
-      lat: item.lat,
-      lon: item.lon,
-      arrive_time: item.arrive_time,
-      leave_time: item.leave_time,
-      duration_hhmm: item.duration_hhmm,
-      stay_type: item.stay_type,
-      is_overnight: item.is_overnight,
-      day_overlap_h: item.day_overlap_h,
-      night_overlap_h: item.night_overlap_h,
-      address: item.closest_address,
-      area: item.area
+    stays: stays.map((s) => ({
+      start_id: s.start_id,
+      next_id: s.next_id,
+      lat: s.lat,
+      lon: s.lon,
+      arrive_time: s.arrive_time,
+      leave_time: s.leave_time,
+      duration_hhmm: s.duration_hhmm,
+      stay_type: s.stay_type,
+      is_overnight: s.is_overnight,
+      day_overlap_h: s.day_overlap_h,
+      night_overlap_h: s.night_overlap_h,
+      address: s.closest_address,
+      area: s.area
     })),
     teleportations,
     hotspots
   };
 
-  const stayExportRows = stays.map((item) => ({
-    arrive_time: item.arrive_time,
-    leave_time: item.leave_time,
-    duration: item.duration_hhmm,
-    area: item.area,
-    lon: item.lon,
-    lat: item.lat,
-    address: item.closest_address,
-    type: item.stay_type
+  const stayExportRows = stays.map((s) => ({
+    arrive_time: s.arrive_time,
+    leave_time: s.leave_time,
+    duration: s.duration_hhmm,
+    area: s.area,
+    lon: s.lon,
+    lat: s.lat,
+    address: s.closest_address,
+    type: s.stay_type
   }));
 
-  const hotspotExportRows = hotspots.map((item) => ({
-    rank: item.rank,
-    area: item.area,
-    address: item.closest_address,
-    visits: item.visits,
-    total_duration: item.total_duration_hhmm,
-    center_lon: item.center_lon,
-    center_lat: item.center_lat
+  const hotspotExportRows = hotspots.map((h) => ({
+    rank: h.rank,
+    area: h.area,
+    address: h.closest_address,
+    visits: h.visits,
+    total_duration: h.total_duration_hhmm,
+    center_lon: h.center_lon,
+    center_lat: h.center_lat
   }));
 
-  const validationRows = stays.map((item) => ({
-    start_id: item.start_id,
-    next_id: item.next_id,
-    arrive_time: item.arrive_time,
-    leave_time: item.leave_time,
-    duration: item.duration_hhmm,
-    area: item.area,
-    lon: item.lon,
-    lat: item.lat,
-    address: item.closest_address
+  const validationRows = stays.map((s) => ({
+    start_id: s.start_id,
+    next_id: s.next_id,
+    arrive_time: s.arrive_time,
+    leave_time: s.leave_time,
+    duration: s.duration_hhmm,
+    area: s.area,
+    lon: s.lon,
+    lat: s.lat,
+    address: s.closest_address
   }));
 
   return {
@@ -701,10 +762,10 @@ export function analyzeRecords(rawRows, options = {}) {
     anomalies: {
       teleportations,
       others: anomalies.concat(
-        teleportations.map((item) => ({
-          type: item.type,
-          time: item.time,
-          description: item.description
+        teleportations.map((t) => ({
+          type: t.type,
+          time: t.time,
+          description: t.description
         }))
       )
     },
@@ -738,6 +799,3 @@ export async function parseWorkbookArrayBuffer(arrayBuffer) {
   }
   throw new Error("Worksheet has no rows.");
 }
-
-
-

@@ -493,6 +493,7 @@ import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260408e";
       id: ["編號", "id", "serial", "序號"],
       plate: ["車號", "車牌", "plate", "車牌號碼"],
       timestamp: ["時間", "time", "timestamp", "日期時間", "辨識時間", "偵測日期"],
+      coord: ["經緯度", "座標", "坐標", "coordinates", "coordinate", "latlon", "lonlat", "gps"],
       lon: ["經度", "longitude", "lon", "lng", "x"],
       lat: ["緯度", "latitude", "lat", "y"],
       source: ["來源", "縣市", "source", "city", "行政區", "國道系統", "行進方向", "門架名稱"],
@@ -526,6 +527,10 @@ import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260408e";
     ].every((name) => has(name));
     if (isIdkcityCamera) {
       return "idkcity_camera";
+    }
+    const isCombinedCoordinate = ["編號", "車號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
+    if (isCombinedCoordinate) {
+      return "combined_coordinate";
     }
     if (has("偵測日期") && has("門架名稱") && (has("eTag序號") || has("國道系統") || has("車牌號碼"))) {
       return "vehicle_recognition";
@@ -624,6 +629,35 @@ import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260408e";
     return null;
   }
 
+  function parseCoordinatePair(value) {
+    const matches = String(value ?? "").match(/[-+]?\d+(?:\.\d+)?/g);
+    if (!matches || matches.length < 2) {
+      return { lon: NaN, lat: NaN };
+    }
+
+    const first = Number.parseFloat(matches[0]);
+    const second = Number.parseFloat(matches[1]);
+    if (!Number.isFinite(first) || !Number.isFinite(second)) {
+      return { lon: NaN, lat: NaN };
+    }
+
+    const looksLikeTaiwanLon = (num) => num >= 110 && num <= 130;
+    const looksLikeTaiwanLat = (num) => num >= 20 && num <= 30;
+    if (looksLikeTaiwanLon(first) && looksLikeTaiwanLat(second)) {
+      return { lon: first, lat: second };
+    }
+    if (looksLikeTaiwanLat(first) && looksLikeTaiwanLon(second)) {
+      return { lon: second, lat: first };
+    }
+    if (Math.abs(first) > 90 && Math.abs(second) <= 90) {
+      return { lon: first, lat: second };
+    }
+    if (Math.abs(second) > 90 && Math.abs(first) <= 90) {
+      return { lon: second, lat: first };
+    }
+    return { lon: first, lat: second };
+  }
+
   function normalizeIdkcityRows(rawRows) {
     const columns = resolveNormalizedColumns(rawRows, {
       trackId: "軌跡編號",
@@ -701,6 +735,9 @@ import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260408e";
       }
       if (!hit) {
         for (const key of keys) {
+          if ((std === "lon" || std === "lat") && selected.coord && key === selected.coord) {
+            continue;
+          }
           const nk = normalizeHeaderKey(key);
           if (normalizedAliases.some((alias) => nk.includes(alias) || alias.includes(nk))) {
             hit = key;
@@ -740,8 +777,11 @@ import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260408e";
       }
     }
 
-    const required = ["plate", "timestamp", "lon", "lat"];
-    const missing = required.filter((key) => !selected[key]);
+    const missing = ["plate", "timestamp"].filter((key) => !selected[key]);
+    if (!selected.coord) {
+      if (!selected.lon) missing.push("lon");
+      if (!selected.lat) missing.push("lat");
+    }
     if (missing.length) {
       throw new Error(`缺少必要欄位: ${missing.join(", ")}`);
     }
@@ -788,8 +828,9 @@ import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260408e";
     const output = rawRows.map((row, idx) => {
       const idRaw = selected.id ? row[selected.id] : idx + 1;
       const idNum = Number.parseInt(idRaw, 10);
-      const lon = toNumber(row[selected.lon]);
-      const lat = toNumber(row[selected.lat]);
+      const coordinatePair = selected.coord ? parseCoordinatePair(row[selected.coord]) : null;
+      const lon = coordinatePair ? coordinatePair.lon : toNumber(row[selected.lon]);
+      const lat = coordinatePair ? coordinatePair.lat : toNumber(row[selected.lat]);
 
       const sourceRaw = selected.source ? row[selected.source] : "";
       const noteRaw = selected.note ? row[selected.note] : "";

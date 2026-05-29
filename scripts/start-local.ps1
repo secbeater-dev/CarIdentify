@@ -6,7 +6,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = 'H:\CarIdentify\CarIdentify'
+$repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 if (-not (Test-Path -LiteralPath $repoRoot)) {
   throw "Project directory not found: $repoRoot"
 }
