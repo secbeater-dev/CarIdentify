@@ -3,7 +3,6 @@
   DEFAULT_MAP_SETTINGS,
   DEFAULT_NORMAL_DRIVING_SPEED_KMH,
   DEFAULT_PARKING_SETTINGS,
-  FIRST_OPEN_NOTICE_KEY,
   GEMINI_ENDPOINT_DEFAULT,
   HOME,
   MAP_DEFAULT_VIEW,
@@ -14,11 +13,11 @@
   OVERNIGHT_MODE_NIGHT,
   PARKING_CLUSTER_RADIUS_M,
   PARKING_SETTINGS_KEY
-} from "./shared/constants.js?v=20260408e";
-import { els } from "./shared/dom.js?v=20260408e";
-import { state } from "./shared/state.js?v=20260408e";
-import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260408e";
-import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260408e";
+} from "./shared/constants.js?v=20260607a";
+import { els } from "./shared/dom.js?v=20260607a";
+import { state } from "./shared/state.js?v=20260607a";
+import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260607a";
+import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260607a";
 import {
   invalidateRoutineMap,
   renderRoutineView,
@@ -26,12 +25,14 @@ import {
   selectAllRoutineDraftHours,
   syncRoutineFilterUi,
   toggleRoutineDraftHour
-} from "./views/routineView.js?v=20260408e";
-import { renderTable } from "./views/tableView.js?v=20260408e";
-import { createParkingView } from "./views/parkingView.js?v=20260408e";
-import { createMainMapView } from "./views/mainMapView.js?v=20260408e";
-import { createAiView } from "./views/aiView.js?v=20260408e";
-import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260408e";
+} from "./views/routineView.js?v=20260607a";
+import { renderTable } from "./views/tableView.js?v=20260607a";
+import { createParkingView } from "./views/parkingView.js?v=20260607a";
+import { createMainMapView } from "./views/mainMapView.js?v=20260607a";
+import { createAiView } from "./views/aiView.js?v=20260607a";
+import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260607a";
+
+const FIRST_OPEN_NOTICE_DAILY_KEY = "sb-first-open-notice-20260607-daily";
   function setStatus(message, type) {
     if (!els.status) return;
     els.status.textContent = message;
@@ -232,22 +233,6 @@ import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260408e";
     return { min: 10, max: 59, label: "10–59 分鐘" };
   }
 
-  function hasSeenFirstOpenNotice() {
-    try {
-      return window.localStorage.getItem(FIRST_OPEN_NOTICE_KEY) === "1";
-    } catch (error) {
-      return false;
-    }
-  }
-
-  function markFirstOpenNoticeSeen() {
-    try {
-      window.localStorage.setItem(FIRST_OPEN_NOTICE_KEY, "1");
-    } catch (error) {
-      // Ignore storage write failures and keep app functional.
-    }
-  }
-
   function clearLocalSettingsAndReload() {
     const clearMatchingKeys = (storage) => {
       if (!storage) return;
@@ -272,37 +257,63 @@ import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260408e";
     window.location.replace(nextUrl.toString());
   }
 
+  function getDailyNoticeStamp() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function hasSeenFirstOpenNoticeToday() {
+    try {
+      return window.localStorage.getItem(FIRST_OPEN_NOTICE_DAILY_KEY) === getDailyNoticeStamp();
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function markFirstOpenNoticeShownToday() {
+    try {
+      window.localStorage.setItem(FIRST_OPEN_NOTICE_DAILY_KEY, getDailyNoticeStamp());
+    } catch (error) {
+      // Ignore storage write failures and keep the app functional.
+    }
+  }
+
   function showFirstOpenNoticeIfNeeded() {
-    if (hasSeenFirstOpenNotice()) return;
+    if (hasSeenFirstOpenNoticeToday()) return;
+    markFirstOpenNoticeShownToday();
 
     const overlay = document.createElement("div");
     overlay.className = "first-open-overlay";
     overlay.setAttribute("role", "dialog");
     overlay.setAttribute("aria-modal", "true");
     overlay.innerHTML = `
-      <div class="first-open-modal">
-        <h3>使用提醒</h3>
-        <p>除 AI 功能外，資料均在本地運行，請安心使用。</p>
-        <p>有任何需求可以私訊 <a href="https://t.me/secbeater" target="_blank" rel="noopener noreferrer">SecBeater</a></p>
-        <p>歡迎加入 <a href="https://t.me/tgsecbeater" target="_blank" rel="noopener noreferrer">Telegram 群組</a>，不定時送福利，歡迎反饋意見。</p>
-        <h4>今日重點（2026-04-08）</h4>
-        <ul class="first-open-changes">
-          <li>時間分布圖改為 24 時段單排方塊，可多選、全選、重設後再套用。</li>
-          <li>停車分析、停駐時段分析、熱區分析、時間分布圖列表可直接點選定位地圖。</li>
-          <li>新增 IDKCity 車辨 Excel 格式支援，未來相同標頭可直接匯入。</li>
-          <li>新增本機一鍵啟動與 Edge CDP 真實瀏覽器回歸測試。</li>
-          <li>修正異常偵測空資料顯示與近期頁面亂碼問題。</li>
-        </ul>
-        <p class="first-open-note">備註：一鍵更新會清除本機設定（地圖/停車/彈窗狀態），並強制重載最新版（等同 Ctrl+F5）。</p>
-        <div class="first-open-actions">
-          <button type="button" class="ghost-btn first-open-refresh" data-action="refresh">一鍵更新（Ctrl+F5＋清除設定）</button>
-          <button type="button" class="run-btn first-open-close" data-action="close">我知道了</button>
+      <div class="first-open-modal first-open-welcome-modal">
+        <div class="first-open-copy">
+          <h3>使用提醒</h3>
+          <p>資料均在本地運行，請安心使用。</p>
+          <p>有任何需求可以加入 <a href="https://line.me/ti/g2/PHIKqpV1T8I0XssHhZrDpF5RGpCVklnlRnoouw?utm_source=invitation&utm_medium=link_copy&utm_campaign=default" target="_blank" rel="noopener noreferrer">LINE 社群</a>。</p>
+          <h4>今日重點（2026-06-07）</h4>
+          <ul class="first-open-changes">
+            <li>任何問題歡迎於社群中提出。</li>
+            <li>AI 分析區新增 Gemini 分析服務連結。</li>
+          </ul>
+          <p class="first-open-note">備註：一鍵更新會清除本機設定（地圖/停車/彈窗狀態），並強制重載最新版（等同 Ctrl+F5）。</p>
+          <div class="first-open-actions">
+            <button type="button" class="ghost-btn first-open-refresh" data-action="refresh">一鍵更新（Ctrl+F5＋清除設定）</button>
+            <button type="button" class="run-btn first-open-close" data-action="close">我知道了</button>
+          </div>
         </div>
+        <a class="first-open-qr-link" href="https://line.me/ti/g2/PHIKqpV1T8I0XssHhZrDpF5RGpCVklnlRnoouw?utm_source=invitation&utm_medium=link_copy&utm_campaign=default" target="_blank" rel="noopener noreferrer" aria-label="加入 LINE 社群">
+          <img src="./static/line-community-qr.jpg" alt="LINE 社群 QR Code" class="first-open-qr">
+          <span>掃描或點擊加入 LINE 社群</span>
+        </a>
       </div>
     `;
 
     const onClose = () => {
-      markFirstOpenNoticeSeen();
       overlay.classList.add("is-closing");
       window.setTimeout(() => {
         document.removeEventListener("keydown", onEscClose);
