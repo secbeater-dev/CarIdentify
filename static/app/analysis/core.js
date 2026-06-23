@@ -272,7 +272,7 @@ export function detectColumns(rows) {
           continue;
         }
         const nk = normalizeHeaderKey(key);
-        if (normalizedAliases.some((alias) => nk.includes(alias) || alias.includes(nk))) {
+        if (normalizedAliases.some((alias) => nk.includes(alias))) {
           hit = key;
           break;
         }

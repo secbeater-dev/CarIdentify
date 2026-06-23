@@ -750,7 +750,7 @@ const FIRST_OPEN_NOTICE_DAILY_KEY = "sb-first-open-notice-20260607-daily";
             continue;
           }
           const nk = normalizeHeaderKey(key);
-          if (normalizedAliases.some((alias) => nk.includes(alias) || alias.includes(nk))) {
+          if (normalizedAliases.some((alias) => nk.includes(alias))) {
             hit = key;
             break;
           }
