@@ -612,6 +612,54 @@ async function assertSummaryContains(client, text) {
   throw new Error(`Expected #routine-filter-summary to contain ${JSON.stringify(text)}, got ${JSON.stringify(actual)}`);
 }
 
+async function assertReadableRoutineChart(client, expectedTheme) {
+  const snapshot = await waitFor(client, `readable routine chart ${expectedTheme}`, async () => {
+    const info = await evaluate(client, `(() => {
+      const canvas = document.querySelector("#routine-hour-chart");
+      const chart = canvas && window.Chart ? window.Chart.getChart(canvas) : null;
+      const title = document.querySelector(".routine-chart-title");
+      const wrap = document.querySelector(".chart-wrap");
+      if (!chart) return null;
+      const tooltipLabel = chart.options.plugins.tooltip.callbacks.label({ parsed: { y: 5 } });
+      return {
+        theme: document.documentElement.dataset.theme,
+        datasetBg: chart.data.datasets[0]?.backgroundColor || "",
+        datasetHoverBg: chart.data.datasets[0]?.hoverBackgroundColor || "",
+        borderWidth: Number(chart.data.datasets[0]?.borderWidth || 0),
+        borderRadius: Number(chart.data.datasets[0]?.borderRadius || 0),
+        xTickColor: chart.options.scales.x.ticks.color || "",
+        yTickColor: chart.options.scales.y.ticks.color || "",
+        xTickFontSize: Number(chart.options.scales.x.ticks.font.size || 0),
+        yTickFontSize: Number(chart.options.scales.y.ticks.font.size || 0),
+        legendFontSize: Number(chart.options.plugins.legend.labels.font.size || 0),
+        xTitle: chart.options.scales.x.title.text || "",
+        yTitle: chart.options.scales.y.title.text || "",
+        tooltipLabel,
+        titleColor: title ? getComputedStyle(title).color : "",
+        wrapHeight: wrap ? Number.parseFloat(getComputedStyle(wrap).height) : 0
+      };
+    })()`);
+    return info?.theme === expectedTheme ? info : null;
+  }, { timeout: 10000, interval: 200 });
+
+  const expectLight = expectedTheme === "light";
+  assertCondition(snapshot.xTitle === "時段" && snapshot.yTitle === "辨識數量", `Routine chart axis titles mismatch ${JSON.stringify(snapshot)}`);
+  assertCondition(snapshot.tooltipLabel === "辨識數量：5 筆", `Routine chart tooltip label mismatch ${JSON.stringify(snapshot)}`);
+  assertCondition(snapshot.xTickFontSize >= 13 && snapshot.yTickFontSize >= 13 && snapshot.legendFontSize >= 14, `Routine chart fonts too small ${JSON.stringify(snapshot)}`);
+  assertCondition(snapshot.borderWidth >= 2 && snapshot.borderRadius >= 7, `Routine chart bars lack emphasis ${JSON.stringify(snapshot)}`);
+  assertCondition(snapshot.wrapHeight >= 300, `Routine chart container too short ${JSON.stringify(snapshot)}`);
+  if (expectLight) {
+    assertCondition(snapshot.xTickColor === "#172019" && snapshot.yTickColor === "#172019", `Light chart tick colors mismatch ${JSON.stringify(snapshot)}`);
+    assertCondition(String(snapshot.datasetBg).includes("15, 118, 110"), `Light chart bar color mismatch ${JSON.stringify(snapshot)}`);
+    assertCondition(snapshot.titleColor === "rgb(23, 32, 25)", `Light chart title color mismatch ${JSON.stringify(snapshot)}`);
+  } else {
+    assertCondition(snapshot.xTickColor === "#f7fffc" && snapshot.yTickColor === "#f7fffc", `Dark chart tick colors mismatch ${JSON.stringify(snapshot)}`);
+    assertCondition(String(snapshot.datasetBg).includes("63, 220, 196"), `Dark chart bar color mismatch ${JSON.stringify(snapshot)}`);
+    assertCondition(snapshot.titleColor === "rgb(247, 255, 252)", `Dark chart title color mismatch ${JSON.stringify(snapshot)}`);
+  }
+  return snapshot;
+}
+
 async function getRoutineExpectedMatchCount(client, selectedHours) {
   return evaluate(client, `Promise.all([
     import('./static/app/shared/state.js?v=${MODULE_VERSION}'),
@@ -954,6 +1002,14 @@ async function testXlsxSingle(client) {
   await assertSummaryContains(client, "全天");
   await assertRowCountAtLeast(client, "#table-routine", 1);
   await waitForMapMode(client, "#routine-map", "leaflet");
+  await assertReadableRoutineChart(client, "light");
+
+  await click(client, "#theme-toggle");
+  await sleep(300);
+  await assertReadableRoutineChart(client, "dark");
+  await click(client, "#theme-toggle");
+  await sleep(300);
+  await assertReadableRoutineChart(client, "light");
 
   await click(client, "#routine-filter-select-all");
   await click(client, "#routine-filter-apply");

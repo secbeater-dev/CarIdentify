@@ -293,6 +293,40 @@ export function getRoutineDraftLabel() {
 export function renderHourlyChart(hourlyCounts) {
   if (!els.routineHourChart || typeof Chart === "undefined") return;
   const labels = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, "0")}:00`);
+  const isLightTheme = document.documentElement.dataset.theme !== "dark";
+  const palette = isLightTheme
+    ? {
+        bar: "rgba(15, 118, 110, 0.88)",
+        barHover: "rgba(12, 95, 88, 0.98)",
+        border: "#0b5f58",
+        text: "#172019",
+        mutedText: "#304038",
+        grid: "rgba(23, 32, 25, 0.16)",
+        zeroGrid: "rgba(23, 32, 25, 0.34)",
+        tooltipBg: "rgba(12, 31, 28, 0.96)",
+        tooltipText: "#ffffff"
+      }
+    : {
+        bar: "rgba(63, 220, 196, 0.82)",
+        barHover: "rgba(121, 255, 229, 0.95)",
+        border: "#a7fff1",
+        text: "#f7fffc",
+        mutedText: "#d5fff6",
+        grid: "rgba(213, 255, 246, 0.18)",
+        zeroGrid: "rgba(213, 255, 246, 0.38)",
+        tooltipBg: "rgba(2, 20, 18, 0.96)",
+        tooltipText: "#f7fffc"
+      };
+  const axisFont = {
+    size: 13,
+    weight: "700",
+    family: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+  };
+  const titleFont = {
+    size: 14,
+    weight: "800",
+    family: axisFont.family
+  };
 
   if (state.hourChart) {
     state.hourChart.destroy();
@@ -312,9 +346,14 @@ export function renderHourlyChart(hourlyCounts) {
         {
           label: "辨識數量",
           data: hourlyCounts,
-          backgroundColor: "#f4f4f4",
-          borderColor: "#d0d0d0",
-          borderWidth: 1.2
+          backgroundColor: palette.bar,
+          hoverBackgroundColor: palette.barHover,
+          borderColor: palette.border,
+          hoverBorderColor: palette.border,
+          borderWidth: 2,
+          borderRadius: 7,
+          borderSkipped: false,
+          maxBarThickness: 34
         }
       ]
     },
@@ -323,20 +362,69 @@ export function renderHourlyChart(hourlyCounts) {
       maintainAspectRatio: false,
       scales: {
         x: {
-          ticks: { color: "#d9d9d9" },
-          grid: { color: "rgba(255,255,255,0.08)" }
+          title: {
+            display: true,
+            text: "時段",
+            color: palette.text,
+            font: titleFont,
+            padding: { top: 8 }
+          },
+          ticks: {
+            color: palette.text,
+            font: axisFont,
+            maxRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: 12
+          },
+          grid: {
+            color: palette.grid,
+            tickColor: palette.grid,
+            lineWidth: 1
+          }
         },
         y: {
           beginAtZero: true,
-          ticks: { color: "#d9d9d9", precision: 0 },
-          grid: { color: "rgba(255,255,255,0.08)" }
+          title: {
+            display: true,
+            text: "辨識數量",
+            color: palette.text,
+            font: titleFont,
+            padding: { bottom: 8 }
+          },
+          ticks: {
+            color: palette.text,
+            precision: 0,
+            font: axisFont,
+            padding: 8
+          },
+          grid: {
+            color: (context) => (context.tick?.value === 0 ? palette.zeroGrid : palette.grid),
+            tickColor: palette.grid,
+            lineWidth: (context) => (context.tick?.value === 0 ? 1.4 : 1)
+          }
         }
       },
       plugins: {
-        legend: { labels: { color: "#f0f0f0" } },
+        legend: {
+          labels: {
+            color: palette.text,
+            font: titleFont,
+            boxWidth: 16,
+            boxHeight: 12,
+            padding: 18
+          }
+        },
         tooltip: {
+          backgroundColor: palette.tooltipBg,
+          titleColor: palette.tooltipText,
+          bodyColor: palette.tooltipText,
+          borderColor: palette.border,
+          borderWidth: 1,
+          padding: 12,
+          titleFont: { size: 14, weight: "800", family: axisFont.family },
+          bodyFont: { size: 14, weight: "700", family: axisFont.family },
           callbacks: {
-            label: (context) => `辨識數量: ${context.parsed.y}`
+            label: (context) => `辨識數量：${context.parsed.y} 筆`
           }
         }
       }

@@ -25,7 +25,7 @@ import {
   selectAllRoutineDraftHours,
   syncRoutineFilterUi,
   toggleRoutineDraftHour
-} from "./views/routineView.js?v=20260607a";
+} from "./views/routineView.js?v=20260625a";
 import { renderTable } from "./views/tableView.js?v=20260607a";
 import { createParkingView } from "./views/parkingView.js?v=20260607a";
 import { createMainMapView } from "./views/mainMapView.js?v=20260625a";
