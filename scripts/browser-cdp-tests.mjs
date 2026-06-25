@@ -820,12 +820,20 @@ async function testStartup(client) {
     const info = await evaluate(client, `(() => ({
       active: document.querySelector("#view-comments")?.classList.contains("active") || false,
       script: document.querySelector("#dsq-embed-scr")?.src || "",
-      telegramHref: document.querySelector(".comments-community-link")?.href || ""
+      telegramHref: document.querySelector(".comments-community-link")?.href || "",
+      disqusPage: (() => {
+        if (typeof window.disqus_config !== "function") return null;
+        const ctx = { page: {} };
+        window.disqus_config.call(ctx);
+        return ctx.page;
+      })()
     }))()`);
     return info?.active && info.script.includes(".disqus.com/embed.js") ? info : null;
   }, { timeout: 8000, interval: 250 });
   assertCondition(commentsInfo.script.includes("secbeater.disqus.com/embed.js"), `Unexpected Disqus script ${commentsInfo.script}`);
   assertCondition(commentsInfo.telegramHref === "https://t.me/secbeater", `Unexpected comments Telegram link ${commentsInfo.telegramHref}`);
+  assertCondition(commentsInfo.disqusPage?.url === "https://car.secbeater.com/?view=comments", `Unexpected Disqus page URL ${JSON.stringify(commentsInfo.disqusPage)}`);
+  assertCondition(commentsInfo.disqusPage?.identifier === "caridentify-comments", `Unexpected Disqus identifier ${JSON.stringify(commentsInfo.disqusPage)}`);
   await ensureView(client, "map");
 }
 

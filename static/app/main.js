@@ -35,7 +35,7 @@ import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260607a";
 const FIRST_OPEN_NOTICE_DAILY_KEY = "sb-first-open-notice-20260625-daily";
 const THEME_COOKIE_NAME = "caridentify-theme";
 const DISQUS_SHORTNAME = "secbeater";
-const DISQUS_THREAD_URL = "https://car.secbeater.com/comments";
+const DISQUS_THREAD_URL = "https://car.secbeater.com/?view=comments";
 const DISQUS_THREAD_IDENTIFIER = "caridentify-comments";
 const DISQUS_THREAD_TITLE = "車輛辨識系統留言板";
 let disqusLoaded = false;
