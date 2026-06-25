@@ -179,9 +179,10 @@ export function createMainMapView(deps) {
       marker.addTo(state.layers.trackDots);
 
       if (mapSettings.showPointNumbers && state.layers.trackLabels) {
+        const numberTextColor = document.documentElement.dataset.theme === "light" ? "#111111" : mapSettings.pointColor;
         const icon = L.divIcon({
           className: "map-point-number-icon",
-          html: `<span style="border-color:${mapSettings.pointColor};color:${mapSettings.pointColor};">${idx + 1}</span>`,
+          html: `<span style="border-color:${mapSettings.pointColor};color:${numberTextColor};">${idx + 1}</span>`,
           iconSize: [26, 26],
           iconAnchor: [13, 13]
         });

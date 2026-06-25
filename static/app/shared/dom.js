@@ -3,6 +3,9 @@ export const els = {
   views: Array.from(document.querySelectorAll(".view")),
   sidebar: document.getElementById("sidebar"),
   sidebarToggle: document.getElementById("sidebar-toggle"),
+  themeToggle: document.getElementById("theme-toggle"),
+  themeToggleIcon: document.getElementById("theme-toggle-icon"),
+  themeToggleLabel: document.getElementById("theme-toggle-label"),
   sidebarYoutube: document.getElementById("sidebar-youtube"),
   sidebarYoutubeFallback: document.getElementById("sidebar-youtube-fallback"),
   analyzeForm: document.getElementById("analyze-form"),
@@ -82,5 +85,6 @@ export const els = {
   aiModelCustom: document.getElementById("ai-model-custom"),
   aiPrompt: document.getElementById("ai-prompt"),
   runAiAnalysis: document.getElementById("run-ai-analysis"),
-  aiOutput: document.getElementById("ai-output")
+  aiOutput: document.getElementById("ai-output"),
+  disqusThread: document.getElementById("disqus_thread")
 };

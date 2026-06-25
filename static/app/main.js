@@ -14,7 +14,7 @@
   PARKING_CLUSTER_RADIUS_M,
   PARKING_SETTINGS_KEY
 } from "./shared/constants.js?v=20260607a";
-import { els } from "./shared/dom.js?v=20260607a";
+import { els } from "./shared/dom.js?v=20260625a";
 import { state } from "./shared/state.js?v=20260607a";
 import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260607a";
 import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260607a";
@@ -28,11 +28,17 @@ import {
 } from "./views/routineView.js?v=20260607a";
 import { renderTable } from "./views/tableView.js?v=20260607a";
 import { createParkingView } from "./views/parkingView.js?v=20260607a";
-import { createMainMapView } from "./views/mainMapView.js?v=20260607a";
+import { createMainMapView } from "./views/mainMapView.js?v=20260625a";
 import { createAiView } from "./views/aiView.js?v=20260607a";
 import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260607a";
 
-const FIRST_OPEN_NOTICE_DAILY_KEY = "sb-first-open-notice-20260607-daily";
+const FIRST_OPEN_NOTICE_DAILY_KEY = "sb-first-open-notice-20260625-daily";
+const THEME_COOKIE_NAME = "caridentify-theme";
+const DISQUS_SHORTNAME = "secbeater";
+const DISQUS_THREAD_URL = "https://car.secbeater.com/comments";
+const DISQUS_THREAD_IDENTIFIER = "caridentify-comments";
+const DISQUS_THREAD_TITLE = "車輛辨識系統留言板";
+let disqusLoaded = false;
   function setStatus(message, type) {
     if (!els.status) return;
     els.status.textContent = message;
@@ -79,6 +85,88 @@ const FIRST_OPEN_NOTICE_DAILY_KEY = "sb-first-open-notice-20260607-daily";
     } catch (error) {
       // Keep app functional if storage is unavailable.
     }
+  }
+
+  function readCookie(name) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${escaped}=([^;]*)`));
+    return match ? decodeURIComponent(match[1]) : "";
+  }
+
+  function writeCookie(name, value, days = 365) {
+    const maxAge = Math.max(1, Math.round(days * 86400));
+    document.cookie = `${name}=${encodeURIComponent(value)}; max-age=${maxAge}; path=/; SameSite=Lax`;
+  }
+
+  function getPreferredTheme() {
+    const stored = readCookie(THEME_COOKIE_NAME);
+    return stored === "dark" ? "dark" : "light";
+  }
+
+  function getThemeElements() {
+    return {
+      toggle: els.themeToggle || document.getElementById("theme-toggle"),
+      icon: els.themeToggleIcon || document.getElementById("theme-toggle-icon"),
+      label: els.themeToggleLabel || document.getElementById("theme-toggle-label")
+    };
+  }
+
+  function syncThemeToggleUi(theme) {
+    const isDark = theme === "dark";
+    const themeEls = getThemeElements();
+    if (themeEls.toggle) {
+      themeEls.toggle.title = isDark ? "切換淺色模式" : "切換深色模式";
+      themeEls.toggle.setAttribute("aria-label", themeEls.toggle.title);
+      themeEls.toggle.setAttribute("aria-pressed", String(isDark));
+    }
+    if (themeEls.icon) {
+      themeEls.icon.textContent = isDark ? "light_mode" : "dark_mode";
+    }
+    if (themeEls.label) {
+      themeEls.label.textContent = isDark ? "淺色模式" : "深色模式";
+    }
+  }
+
+  function applyTheme(theme, options = {}) {
+    const normalized = theme === "dark" ? "dark" : "light";
+    document.documentElement.dataset.theme = normalized;
+    if (options.persist !== false) {
+      writeCookie(THEME_COOKIE_NAME, normalized);
+    }
+    syncThemeToggleUi(normalized);
+    rerenderMapIfReady();
+    rerenderParkingIfReady();
+    rerenderRoutineIfReady();
+    invalidateOvernightMap();
+    invalidateHotspotsMap();
+  }
+
+  function toggleTheme() {
+    const current = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+    applyTheme(current === "dark" ? "light" : "dark");
+  }
+
+  function loadDisqusComments() {
+    const disqusThread = els.disqusThread || document.getElementById("disqus_thread");
+    if (disqusLoaded || !disqusThread || !DISQUS_SHORTNAME) return;
+    disqusLoaded = true;
+    window.disqus_config = function () {
+      this.page.url = DISQUS_THREAD_URL;
+      this.page.identifier = DISQUS_THREAD_IDENTIFIER;
+      this.page.title = DISQUS_THREAD_TITLE;
+      this.language = "zh_TW";
+    };
+    const script = document.createElement("script");
+    script.src = `https://${DISQUS_SHORTNAME}.disqus.com/embed.js`;
+    script.id = "dsq-embed-scr";
+    script.setAttribute("data-timestamp", String(Date.now()));
+    script.async = true;
+    script.onerror = () => {
+      if (disqusThread) {
+        disqusThread.innerHTML = '<div class="comments-placeholder is-error">留言板暫時無法載入，請稍後再試。</div>';
+      }
+    };
+    (document.head || document.body).appendChild(script);
   }
 
   function configureSidebarYoutubeEmbed() {
@@ -294,11 +382,11 @@ const FIRST_OPEN_NOTICE_DAILY_KEY = "sb-first-open-notice-20260607-daily";
         <div class="first-open-copy">
           <h3>使用提醒</h3>
           <p>資料均在本地運行，請安心使用。</p>
-          <p>有任何需求可以加入 <a href="https://line.me/ti/g2/PHIKqpV1T8I0XssHhZrDpF5RGpCVklnlRnoouw?utm_source=invitation&utm_medium=link_copy&utm_campaign=default" target="_blank" rel="noopener noreferrer">LINE 社群</a>。</p>
-          <h4>今日重點（2026-06-07）</h4>
+          <p>任何問題歡迎於 <a href="https://t.me/secbeater" target="_blank" rel="noopener noreferrer">SecBeater Telegram 社群</a> 中提出。</p>
+          <h4>今日重點（2026-06-25）</h4>
           <ul class="first-open-changes">
-            <li>任何問題歡迎於社群中提出。</li>
-            <li>AI 分析區新增 Gemini 分析服務連結。</li>
+            <li>新增淺色模式。</li>
+            <li>新增留言板。</li>
           </ul>
           <p class="first-open-note">備註：一鍵更新會清除本機設定（地圖/停車/彈窗狀態），並強制重載最新版（等同 Ctrl+F5）。</p>
           <div class="first-open-actions">
@@ -306,9 +394,9 @@ const FIRST_OPEN_NOTICE_DAILY_KEY = "sb-first-open-notice-20260607-daily";
             <button type="button" class="run-btn first-open-close" data-action="close">我知道了</button>
           </div>
         </div>
-        <a class="first-open-qr-link" href="https://line.me/ti/g2/PHIKqpV1T8I0XssHhZrDpF5RGpCVklnlRnoouw?utm_source=invitation&utm_medium=link_copy&utm_campaign=default" target="_blank" rel="noopener noreferrer" aria-label="加入 LINE 社群">
-          <img src="./static/line-community-qr.jpg" alt="LINE 社群 QR Code" class="first-open-qr">
-          <span>掃描或點擊加入 LINE 社群</span>
+        <a class="first-open-community-card" href="https://t.me/secbeater" target="_blank" rel="noopener noreferrer" aria-label="加入 SecBeater Telegram 社群">
+          <img src="https://cdn.rafled.com/anime-icons/images/6nuiK8b9XPLt.jpg" alt="SecBeater Telegram 社群" class="first-open-community-image">
+          <span>點擊加入 Telegram 社群</span>
         </a>
       </div>
     `;
@@ -1621,6 +1709,9 @@ function setActiveView(viewKey) {
     if (viewKey === "routine") {
       invalidateRoutineMap();
     }
+    if (viewKey === "comments") {
+      loadDisqusComments();
+    }
   }
 
   function bindEvents() {
@@ -1631,6 +1722,9 @@ function setActiveView(viewKey) {
         setActiveView(button.dataset.view);
       });
     }
+
+    const themeToggle = els.themeToggle || document.getElementById("theme-toggle");
+    themeToggle?.addEventListener("click", toggleTheme);
 
     els.sidebarToggle?.addEventListener("click", () => {
       els.sidebar?.classList.toggle("collapsed");
@@ -1794,6 +1888,7 @@ function setActiveView(viewKey) {
   }
 
   function init() {
+    applyTheme(getPreferredTheme(), { persist: false });
     loadUserSettings();
     syncMapSettingsUi();
     syncParkingSettingsUi();
@@ -1827,6 +1922,8 @@ function setActiveView(viewKey) {
     }
     setTeleportVisible(false);
     showFirstOpenNoticeIfNeeded();
+    window.__CARIDENTIFY_APP_READY__ = true;
+    document.documentElement.dataset.appReady = "true";
   }
 
   if (typeof window === "undefined" || window.__CARIDENTIFY_SKIP_AUTO_INIT__ !== true) {

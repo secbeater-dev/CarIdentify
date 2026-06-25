@@ -201,14 +201,16 @@ async function waitForPageReady(client) {
   await waitFor(client, "document ready", async () => {
     const info = await evaluate(client, `(() => ({
       ready: document.readyState === "complete",
-      hasFileInput: Boolean(document.querySelector("#file-input"))
+      hasFileInput: Boolean(document.querySelector("#file-input")),
+      appReady: window.__CARIDENTIFY_APP_READY__ === true
     }))()`);
-    return info?.ready && info?.hasFileInput ? info : null;
+    return info?.ready && info?.hasFileInput && info?.appReady ? info : null;
   }, { interval: 150, timeout: 20000 });
 }
 
 async function navigateToBaseUrl(client) {
   await client.send("Page.navigate", { url: baseUrl });
+  await sleep(500);
   await waitForPageReady(client);
 }
 
@@ -228,6 +230,7 @@ async function closeFirstOpenOverlayIfPresent(client) {
 
 async function reloadPage(client) {
   await client.send("Page.reload", { ignoreCache: true });
+  await sleep(500);
   await waitForPageReady(client);
   await closeFirstOpenOverlayIfPresent(client);
 }
@@ -714,8 +717,55 @@ async function ensureView(client, key) {
   await sleep(250);
 }
 
+async function assertLightMapNumbers(client) {
+  const colorInfo = await waitFor(client, "light map point number color", async () => {
+    const info = await evaluate(client, `(() => {
+      const label = document.querySelector('.map-point-number-icon span');
+      if (!label) return null;
+      return {
+        color: getComputedStyle(label).color,
+        text: label.textContent.trim()
+      };
+    })()`);
+    return info?.color ? info : null;
+  }, { timeout: 12000, interval: 250 });
+  assertCondition(
+    colorInfo.color === "rgb(17, 17, 17)" || colorInfo.color === "rgb(0, 0, 0)",
+    `Expected light mode map number to be black, got ${colorInfo.color}`
+  );
+}
+
 async function testStartup(client) {
   await waitForPageReady(client);
+  await evaluate(client, `(() => {
+    for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("sb-first-open-notice-")) {
+        localStorage.removeItem(key);
+      }
+    }
+    document.cookie = "caridentify-theme=; max-age=0; path=/; SameSite=Lax";
+    return true;
+  })()`);
+  await client.send("Page.reload", { ignoreCache: true });
+  await sleep(500);
+  await waitForPageReady(client);
+  const noticeInfo = await waitFor(client, "daily notice content", async () => {
+    const info = await evaluate(client, `(() => {
+      const overlay = document.querySelector('.first-open-overlay');
+      return {
+        exists: Boolean(overlay),
+        text: overlay?.textContent || "",
+        telegramHref: overlay?.querySelector('.first-open-community-card')?.href || "",
+        imageSrc: overlay?.querySelector('.first-open-community-image')?.src || ""
+      };
+    })()`);
+    return info?.exists ? info : null;
+  }, { timeout: 8000, interval: 150 });
+  assertCondition(noticeInfo.text.includes("今日重點（2026-06-25）"), "Daily notice missing 2026-06-25 heading");
+  assertCondition(noticeInfo.text.includes("新增淺色模式") && noticeInfo.text.includes("新增留言板"), "Daily notice missing 2026-06-25 bullets");
+  assertCondition(noticeInfo.text.includes("任何問題歡迎於") && noticeInfo.telegramHref === "https://t.me/secbeater", `Unexpected notice Telegram link ${noticeInfo.telegramHref}`);
+  assertCondition(noticeInfo.imageSrc === "https://cdn.rafled.com/anime-icons/images/6nuiK8b9XPLt.jpg", `Unexpected notice image ${noticeInfo.imageSrc}`);
   await closeFirstOpenOverlayIfPresent(client);
   const selectors = [
     "#overnight-map",
@@ -726,14 +776,57 @@ async function testStartup(client) {
     "#routine-filter-status",
     "#routine-filter-summary",
     "#table-routine",
-    "#file-input"
+    "#file-input",
+    "#theme-toggle",
+    "#view-comments",
+    "#disqus_thread"
   ];
   for (const selector of selectors) {
     const exists = await evaluate(client, `Boolean(document.querySelector(${valueLiteral(selector)}))`);
     assertCondition(exists, `Missing selector ${selector}`);
   }
   const menuCount = await evaluate(client, `document.querySelectorAll('.menu-item').length`);
-  assertCondition(menuCount === 7, `Expected 7 menu items, got ${menuCount}`);
+  assertCondition(menuCount === 8, `Expected 8 menu items, got ${menuCount}`);
+
+  const initialTheme = await evaluate(client, `document.documentElement.dataset.theme`);
+  assertCondition(initialTheme === "light", `Expected default light theme, got ${initialTheme}`);
+
+  await click(client, "#theme-toggle");
+  await sleep(300);
+  const darkInfo = await evaluate(client, `(() => ({
+      theme: document.documentElement.dataset.theme,
+      cookie: document.cookie,
+      label: document.querySelector("#theme-toggle-label")?.textContent || "",
+      aria: document.querySelector("#theme-toggle")?.getAttribute("aria-label") || ""
+  }))()`);
+  assertCondition(darkInfo.theme === "dark", `Expected dark theme after toggle, got ${JSON.stringify(darkInfo)}`);
+  assertCondition(String(darkInfo.cookie || "").includes("caridentify-theme=dark"), `Expected dark theme cookie, got ${JSON.stringify(darkInfo)}`);
+  await reloadPage(client);
+  const persistedTheme = await evaluate(client, `document.documentElement.dataset.theme`);
+  assertCondition(persistedTheme === "dark", `Expected persisted dark theme, got ${persistedTheme}`);
+  await click(client, "#theme-toggle");
+  await sleep(300);
+  const lightInfo = await evaluate(client, `(() => ({
+      theme: document.documentElement.dataset.theme,
+      cookie: document.cookie,
+      label: document.querySelector("#theme-toggle-label")?.textContent || "",
+      aria: document.querySelector("#theme-toggle")?.getAttribute("aria-label") || ""
+  }))()`);
+  assertCondition(lightInfo.theme === "light", `Expected light theme after toggle, got ${JSON.stringify(lightInfo)}`);
+  assertCondition(String(lightInfo.cookie || "").includes("caridentify-theme=light"), `Expected light theme cookie, got ${JSON.stringify(lightInfo)}`);
+
+  await ensureView(client, "comments");
+  const commentsInfo = await waitFor(client, "comments view and Disqus script", async () => {
+    const info = await evaluate(client, `(() => ({
+      active: document.querySelector("#view-comments")?.classList.contains("active") || false,
+      script: document.querySelector("#dsq-embed-scr")?.src || "",
+      telegramHref: document.querySelector(".comments-community-link")?.href || ""
+    }))()`);
+    return info?.active && info.script.includes(".disqus.com/embed.js") ? info : null;
+  }, { timeout: 8000, interval: 250 });
+  assertCondition(commentsInfo.script.includes("secbeater.disqus.com/embed.js"), `Unexpected Disqus script ${commentsInfo.script}`);
+  assertCondition(commentsInfo.telegramHref === "https://t.me/secbeater", `Unexpected comments Telegram link ${commentsInfo.telegramHref}`);
+  await ensureView(client, "map");
 }
 
 async function testXlsxSingle(client) {
@@ -742,6 +835,7 @@ async function testXlsxSingle(client) {
   await uploadAndAnalyze(client, [xlsxPath]);
   await assertStatusSuccess(client, "BTQ1234");
   await assertAnalysisState(client, { minRaw: 2, minClean: 2, minTrack: 2, coordinateSwappedFixed: true });
+  await assertLightMapNumbers(client);
 
   await ensureView(client, "overnight");
   await assertRowCountAtLeast(client, "#table-overnight", 1);
