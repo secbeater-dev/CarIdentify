@@ -757,15 +757,22 @@ async function testStartup(client) {
         exists: Boolean(overlay),
         text: overlay?.textContent || "",
         telegramHref: overlay?.querySelector('.first-open-community-card')?.href || "",
-        imageSrc: overlay?.querySelector('.first-open-community-image')?.src || ""
+        inlineTelegramText: overlay?.querySelector('.first-open-copy a[href="https://t.me/secbeater"]')?.textContent?.trim() || "",
+        imageSrc: overlay?.querySelector('.first-open-community-image')?.src || "",
+        imageLabel: overlay?.querySelector('.first-open-community-card span')?.textContent?.trim() || "",
+        titleColor: overlay ? getComputedStyle(overlay.querySelector('.first-open-modal h3')).color : "",
+        cardTransform: overlay ? getComputedStyle(overlay.querySelector('.first-open-community-card')).transform : ""
       };
     })()`);
     return info?.exists ? info : null;
   }, { timeout: 8000, interval: 150 });
   assertCondition(noticeInfo.text.includes("今日重點（2026-06-25）"), "Daily notice missing 2026-06-25 heading");
   assertCondition(noticeInfo.text.includes("新增淺色模式") && noticeInfo.text.includes("新增留言板"), "Daily notice missing 2026-06-25 bullets");
-  assertCondition(noticeInfo.text.includes("任何問題歡迎於") && noticeInfo.telegramHref === "https://t.me/secbeater", `Unexpected notice Telegram link ${noticeInfo.telegramHref}`);
+  assertCondition(noticeInfo.text.includes("任何問題歡迎於") && noticeInfo.inlineTelegramText === "Telegram" && noticeInfo.telegramHref === "https://t.me/secbeater", `Unexpected notice Telegram link/text ${JSON.stringify(noticeInfo)}`);
   assertCondition(noticeInfo.imageSrc === "https://cdn.rafled.com/anime-icons/images/6nuiK8b9XPLt.jpg", `Unexpected notice image ${noticeInfo.imageSrc}`);
+  assertCondition(noticeInfo.imageLabel.includes("Gemini Pro") && noticeInfo.imageLabel.includes("NT$1,500") && noticeInfo.imageLabel.includes("NT$8,280"), `Unexpected notice image label ${noticeInfo.imageLabel}`);
+  assertCondition(noticeInfo.titleColor === "rgb(255, 216, 91)", `Unexpected notice title color ${noticeInfo.titleColor}`);
+  assertCondition(noticeInfo.cardTransform && noticeInfo.cardTransform !== "none", `Expected desktop notice card to be shifted up, got ${noticeInfo.cardTransform}`);
   await closeFirstOpenOverlayIfPresent(client);
   const selectors = [
     "#overnight-map",
@@ -830,7 +837,7 @@ async function testStartup(client) {
     }))()`);
     return info?.active && info.script.includes(".disqus.com/embed.js") ? info : null;
   }, { timeout: 8000, interval: 250 });
-  assertCondition(commentsInfo.script.includes("secbeater.disqus.com/embed.js"), `Unexpected Disqus script ${commentsInfo.script}`);
+  assertCondition(commentsInfo.script.includes("secbeatercom.disqus.com/embed.js"), `Unexpected Disqus script ${commentsInfo.script}`);
   assertCondition(commentsInfo.telegramHref === "https://t.me/secbeater", `Unexpected comments Telegram link ${commentsInfo.telegramHref}`);
   assertCondition(commentsInfo.disqusPage?.url === "https://car.secbeater.com/?view=comments", `Unexpected Disqus page URL ${JSON.stringify(commentsInfo.disqusPage)}`);
   assertCondition(commentsInfo.disqusPage?.identifier === "caridentify-comments", `Unexpected Disqus identifier ${JSON.stringify(commentsInfo.disqusPage)}`);
@@ -946,6 +953,12 @@ async function main() {
   await client.send("Page.enable");
   await client.send("Runtime.enable");
   await client.send("DOM.enable");
+  await client.send("Emulation.setDeviceMetricsOverride", {
+    width: 1280,
+    height: 900,
+    deviceScaleFactor: 1,
+    mobile: false
+  });
   await navigateToBaseUrl(client);
 
   const tests = [

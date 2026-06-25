@@ -34,7 +34,7 @@ import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260607a";
 
 const FIRST_OPEN_NOTICE_DAILY_KEY = "sb-first-open-notice-20260625-daily";
 const THEME_COOKIE_NAME = "caridentify-theme";
-const DISQUS_SHORTNAME = "secbeater";
+const DISQUS_SHORTNAME = "secbeatercom";
 const DISQUS_THREAD_URL = "https://car.secbeater.com/?view=comments";
 const DISQUS_THREAD_IDENTIFIER = "caridentify-comments";
 const DISQUS_THREAD_TITLE = "車輛辨識系統留言板";
@@ -382,7 +382,7 @@ let disqusLoaded = false;
         <div class="first-open-copy">
           <h3>使用提醒</h3>
           <p>資料均在本地運行，請安心使用。</p>
-          <p>任何問題歡迎於 <a href="https://t.me/secbeater" target="_blank" rel="noopener noreferrer">SecBeater Telegram 社群</a> 中提出。</p>
+          <p>任何問題歡迎於 <a href="https://t.me/secbeater" target="_blank" rel="noopener noreferrer">Telegram</a> 中提出。</p>
           <h4>今日重點（2026-06-25）</h4>
           <ul class="first-open-changes">
             <li>新增淺色模式。</li>
@@ -394,9 +394,9 @@ let disqusLoaded = false;
             <button type="button" class="run-btn first-open-close" data-action="close">我知道了</button>
           </div>
         </div>
-        <a class="first-open-community-card" href="https://t.me/secbeater" target="_blank" rel="noopener noreferrer" aria-label="加入 SecBeater Telegram 社群">
-          <img src="https://cdn.rafled.com/anime-icons/images/6nuiK8b9XPLt.jpg" alt="SecBeater Telegram 社群" class="first-open-community-image">
-          <span>點擊加入 Telegram 社群</span>
+        <a class="first-open-community-card" href="https://t.me/secbeater" target="_blank" rel="noopener noreferrer" aria-label="加入 Telegram">
+          <img src="https://cdn.rafled.com/anime-icons/images/6nuiK8b9XPLt.jpg" alt="Telegram" class="first-open-community-image">
+          <span>一起跟上 AI 時代，讓 Gemini Pro 成為你的效率夥伴。一年會員限量優惠 NT$1,500（原價 NT$8,280），真誠推薦給想提升自己的你。</span>
         </a>
       </div>
     `;
