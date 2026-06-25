@@ -26,7 +26,7 @@ export function columnAliases() {
     id: ["編號", "id", "serial", "序號"],
     plate: ["車號", "車牌", "plate", "車牌號碼"],
     timestamp: ["時間", "time", "timestamp", "日期時間", "辨識時間", "偵測日期"],
-    coord: ["經緯度", "座標", "坐標", "coordinates", "coordinate", "latlon", "lonlat", "gps"],
+    coord: ["經緯度", "座標", "坐標", "coordinates", "coordinate", "latlon", "lonlat"],
     lon: ["經度", "longitude", "lon", "lng", "x"],
     lat: ["緯度", "latitude", "lat", "y"],
     source: ["來源", "縣市", "source", "city", "行政區", "國道系統", "行進方向", "門架名稱"],
@@ -64,6 +64,10 @@ export function detectDatasetFormat(rows) {
   const isCombinedCoordinate = ["編號", "車號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
   if (isCombinedCoordinate) {
     return "combined_coordinate";
+  }
+  const isIrent = ["車號", "GPS時間", "經度", "緯度"].every((name) => has(name));
+  if (isIrent) {
+    return "irent";
   }
   if (has("偵測日期") && has("門架名稱") && (has("eTag序號") || has("國道系統") || has("車牌號碼"))) {
     return "vehicle_recognition";
@@ -191,6 +195,37 @@ function parseCoordinatePair(value) {
   return { lon: first, lat: second };
 }
 
+function looksLikeCoordinatePair(value) {
+  const matches = String(value ?? "").match(/[-+]?\d+(?:\.\d+)?/g);
+  if (!matches || matches.length < 2) return false;
+
+  const first = Number.parseFloat(matches[0]);
+  const second = Number.parseFloat(matches[1]);
+  if (!Number.isFinite(first) || !Number.isFinite(second)) return false;
+
+  const looksLikeTaiwanLon = (num) => num >= 110 && num <= 130;
+  const looksLikeTaiwanLat = (num) => num >= 20 && num <= 30;
+  if (looksLikeTaiwanLon(first) && looksLikeTaiwanLat(second)) return true;
+  if (looksLikeTaiwanLat(first) && looksLikeTaiwanLon(second)) return true;
+  if (Math.abs(first) > 90 && Math.abs(first) <= 180 && Math.abs(second) <= 90) return true;
+  if (Math.abs(second) > 90 && Math.abs(second) <= 180 && Math.abs(first) <= 90) return true;
+  return false;
+}
+
+function columnHasCoordinatePairs(rows, key) {
+  if (!key) return false;
+
+  let checked = 0;
+  let matched = 0;
+  for (const row of rows.slice(0, 30)) {
+    const text = String(row?.[key] ?? "").trim();
+    if (!text) continue;
+    checked += 1;
+    if (looksLikeCoordinatePair(text)) matched += 1;
+  }
+  return checked > 0 && matched / checked >= 0.6;
+}
+
 function normalizeIdkcityRows(rawRows) {
   const columns = resolveNormalizedColumns(rawRows, {
     trackId: "軌跡編號",
@@ -308,6 +343,14 @@ export function detectColumns(rows) {
     if (bestKey && bestScore >= 0.6) {
       selected.timestamp = bestKey;
     }
+  }
+
+  if (selected.coord && ((selected.lon && selected.lat) || !columnHasCoordinatePairs(sampleRows, selected.coord))) {
+    delete selected.coord;
+  }
+  if (selected.coord) {
+    delete selected.lon;
+    delete selected.lat;
   }
 
   const missing = ["plate", "timestamp"].filter((key) => !selected[key]);
@@ -790,8 +833,41 @@ export async function parseWorkbookArrayBuffer(arrayBuffer) {
     throw new Error("No worksheet found.");
   }
 
+  function recoverWorksheetRange(sheet) {
+    const refs = Object.keys(sheet || {}).filter((key) => /^[A-Z]+[0-9]+$/i.test(key));
+    if (!refs.length) return;
+
+    const decoded = refs.map((ref) => XLSX.utils.decode_cell(ref));
+    const recovered = {
+      s: {
+        r: Math.min(...decoded.map((cell) => cell.r)),
+        c: Math.min(...decoded.map((cell) => cell.c))
+      },
+      e: {
+        r: Math.max(...decoded.map((cell) => cell.r)),
+        c: Math.max(...decoded.map((cell) => cell.c))
+      }
+    };
+    const recoveredCellCount = (recovered.e.r - recovered.s.r + 1) * (recovered.e.c - recovered.s.c + 1);
+
+    let currentCellCount = 0;
+    try {
+      const current = sheet["!ref"] ? XLSX.utils.decode_range(sheet["!ref"]) : null;
+      if (current) {
+        currentCellCount = (current.e.r - current.s.r + 1) * (current.e.c - current.s.c + 1);
+      }
+    } catch (error) {
+      currentCellCount = 0;
+    }
+
+    if (!sheet["!ref"] || recoveredCellCount > currentCellCount) {
+      sheet["!ref"] = XLSX.utils.encode_range(recovered);
+    }
+  }
+
   for (const name of sheetNames) {
     const sheet = workbook.Sheets[name];
+    recoverWorksheetRange(sheet);
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
     if (rows.length > 0) {
       return rows;

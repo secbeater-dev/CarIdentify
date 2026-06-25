@@ -2287,6 +2287,81 @@ html[data-theme="light"] .first-open-modal h3 {
   font-size: 12px;
 }
 
+.first-open-support-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.first-open-support-panel[hidden],
+.first-open-support-list[hidden] {
+  display: none;
+}
+
+.first-open-support-field {
+  display: grid;
+  gap: 5px;
+  color: #f4f4f4;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.first-open-support-password {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #111111;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.first-open-support-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.first-open-support-unlock {
+  min-width: 72px;
+}
+
+.first-open-support-status {
+  color: #d8d8d8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.first-open-support-status.is-error {
+  color: #ffb4b4;
+}
+
+.first-open-support-status.is-success {
+  color: #bff7c9;
+}
+
+.first-open-support-list {
+  display: grid;
+  gap: 6px;
+  color: #f6f6f6;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.first-open-support-list p,
+.first-open-support-list ul {
+  margin: 0;
+}
+
+.first-open-support-list ul {
+  padding-left: 18px;
+}
+
 .first-open-actions {
   display: flex;
   justify-content: flex-end;

@@ -123,4 +123,39 @@ const freewayResult = analyzeRecords(freewayRows, { skipCleaning: true, normalDr
 assert.equal(freewayResult.summary.cleaning_skipped, true);
 assert.equal(freewayResult.map.track.length, 2);
 
+const irentRows = [
+  {
+    "車號": "RFX-5112",
+    "GPS時間": "6/12/2026 6:13:48 PM",
+    "經度": "25.1867100",
+    "緯度": "121.4236600"
+  },
+  {
+    "車號": "RFX-5112",
+    "GPS時間": "6/12/2026 6:14:02 PM",
+    "經度": "25.1867100",
+    "緯度": "121.4236600"
+  },
+  {
+    "車號": "RFX-5112",
+    "GPS時間": "6/12/2026 6:16:24 PM",
+    "經度": "25.1867200",
+    "緯度": "121.4236400"
+  }
+];
+
+assert.equal(detectDatasetFormat(irentRows), "irent");
+const irentColumns = detectColumns(irentRows);
+assert.equal(irentColumns.timestamp, "GPS時間");
+assert.equal(irentColumns.coord, undefined);
+assert.equal(irentColumns.lon, "經度");
+assert.equal(irentColumns.lat, "緯度");
+const irentNormalized = normalizeRows(irentRows);
+assert.equal(irentNormalized[0].lon, 25.18671);
+assert.equal(irentNormalized[0].lat, 121.42366);
+const irentResult = analyzeRecords(irentRows, { normalDrivingSpeedKmh: 40 });
+assert.equal(irentResult.summary.coordinate_swapped_fixed, true);
+assert.equal(irentResult.map.track[0].lon, 121.42366);
+assert.equal(irentResult.map.track[0].lat, 25.18671);
+
 console.log("PASS core-unit-tests");

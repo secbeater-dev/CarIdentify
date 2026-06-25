@@ -37,6 +37,7 @@ const DISQUS_SHORTNAME = "secbeatercom";
 const DISQUS_THREAD_URL = "https://car.secbeater.com/?view=comments";
 const DISQUS_THREAD_IDENTIFIER = "caridentify-comments";
 const DISQUS_THREAD_TITLE = "車輛辨識系統留言板";
+const SUPPORT_TYPES_PASSWORD = "@EClLl*j2hLylZ2I@k3&";
 let disqusLoaded = false;
   function setStatus(message, type) {
     if (!els.status) return;
@@ -361,8 +362,28 @@ let disqusLoaded = false;
             <li>新增留言板。</li>
           </ul>
           <p class="first-open-note">備註：一鍵更新會清除本機設定（地圖/停車/彈窗狀態），並強制重載最新版（等同 Ctrl+F5）。</p>
+          <div class="first-open-support-panel" hidden>
+            <label class="first-open-support-field">
+              <span>支援檔案類型密碼</span>
+              <input type="password" class="first-open-support-password" autocomplete="current-password" placeholder="請輸入密碼">
+            </label>
+            <div class="first-open-support-actions">
+              <button type="button" class="ghost-btn first-open-support-unlock" data-action="unlock-support">確認</button>
+              <span class="first-open-support-status" aria-live="polite">備註：請跟作者索取</span>
+            </div>
+            <div class="first-open-support-list" hidden>
+              <p>支援檔案類型：</p>
+              <ul>
+                <li>警政署智慧分析-車牌辨識系統</li>
+                <li>警政署智慧分析-高速公路ETC紀錄</li>
+                <li>irent資料</li>
+              </ul>
+              <p>備註：需要支援其他類型，歡迎提供檔案給作者</p>
+            </div>
+          </div>
           <div class="first-open-actions">
             <button type="button" class="ghost-btn first-open-refresh" data-action="refresh">一鍵更新（Ctrl+F5＋清除設定）</button>
+            <button type="button" class="ghost-btn first-open-support-toggle" data-action="support-types">顯示支援檔案類型</button>
             <button type="button" class="run-btn first-open-close" data-action="close">我知道了</button>
           </div>
         </div>
@@ -396,6 +417,37 @@ let disqusLoaded = false;
     });
     overlay.querySelector("[data-action='close']")?.addEventListener("click", onClose);
     overlay.querySelector("[data-action='refresh']")?.addEventListener("click", clearLocalSettingsAndReload);
+    overlay.querySelector("[data-action='support-types']")?.addEventListener("click", () => {
+      const panel = overlay.querySelector(".first-open-support-panel");
+      panel.hidden = false;
+      overlay.querySelector(".first-open-support-password")?.focus();
+    });
+
+    const unlockSupportTypes = () => {
+      const passwordInput = overlay.querySelector(".first-open-support-password");
+      const status = overlay.querySelector(".first-open-support-status");
+      const list = overlay.querySelector(".first-open-support-list");
+      if (!passwordInput || !status || !list) return;
+      if (passwordInput.value === SUPPORT_TYPES_PASSWORD) {
+        list.hidden = false;
+        status.textContent = "已顯示支援檔案類型";
+        status.classList.remove("is-error");
+        status.classList.add("is-success");
+        return;
+      }
+      list.hidden = true;
+      status.textContent = "密碼錯誤，請確認後再輸入。";
+      status.classList.remove("is-success");
+      status.classList.add("is-error");
+      passwordInput.select();
+    };
+    overlay.querySelector("[data-action='unlock-support']")?.addEventListener("click", unlockSupportTypes);
+    overlay.querySelector(".first-open-support-password")?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        unlockSupportTypes();
+      }
+    });
 
     document.body.appendChild(overlay);
     document.addEventListener("keydown", onEscClose);
@@ -564,7 +616,7 @@ let disqusLoaded = false;
       id: ["編號", "id", "serial", "序號"],
       plate: ["車號", "車牌", "plate", "車牌號碼"],
       timestamp: ["時間", "time", "timestamp", "日期時間", "辨識時間", "偵測日期"],
-      coord: ["經緯度", "座標", "坐標", "coordinates", "coordinate", "latlon", "lonlat", "gps"],
+      coord: ["經緯度", "座標", "坐標", "coordinates", "coordinate", "latlon", "lonlat"],
       lon: ["經度", "longitude", "lon", "lng", "x"],
       lat: ["緯度", "latitude", "lat", "y"],
       source: ["來源", "縣市", "source", "city", "行政區", "國道系統", "行進方向", "門架名稱"],
@@ -602,6 +654,10 @@ let disqusLoaded = false;
     const isCombinedCoordinate = ["編號", "車號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
     if (isCombinedCoordinate) {
       return "combined_coordinate";
+    }
+    const isIrent = ["車號", "GPS時間", "經度", "緯度"].every((name) => has(name));
+    if (isIrent) {
+      return "irent";
     }
     if (has("偵測日期") && has("門架名稱") && (has("eTag序號") || has("國道系統") || has("車牌號碼"))) {
       return "vehicle_recognition";
@@ -729,6 +785,37 @@ let disqusLoaded = false;
     return { lon: first, lat: second };
   }
 
+  function looksLikeCoordinatePair(value) {
+    const matches = String(value ?? "").match(/[-+]?\d+(?:\.\d+)?/g);
+    if (!matches || matches.length < 2) return false;
+
+    const first = Number.parseFloat(matches[0]);
+    const second = Number.parseFloat(matches[1]);
+    if (!Number.isFinite(first) || !Number.isFinite(second)) return false;
+
+    const looksLikeTaiwanLon = (num) => num >= 110 && num <= 130;
+    const looksLikeTaiwanLat = (num) => num >= 20 && num <= 30;
+    if (looksLikeTaiwanLon(first) && looksLikeTaiwanLat(second)) return true;
+    if (looksLikeTaiwanLat(first) && looksLikeTaiwanLon(second)) return true;
+    if (Math.abs(first) > 90 && Math.abs(first) <= 180 && Math.abs(second) <= 90) return true;
+    if (Math.abs(second) > 90 && Math.abs(second) <= 180 && Math.abs(first) <= 90) return true;
+    return false;
+  }
+
+  function columnHasCoordinatePairs(rows, key) {
+    if (!key) return false;
+
+    let checked = 0;
+    let matched = 0;
+    for (const row of rows.slice(0, 30)) {
+      const text = String(row?.[key] ?? "").trim();
+      if (!text) continue;
+      checked += 1;
+      if (looksLikeCoordinatePair(text)) matched += 1;
+    }
+    return checked > 0 && matched / checked >= 0.6;
+  }
+
   function normalizeIdkcityRows(rawRows) {
     const columns = resolveNormalizedColumns(rawRows, {
       trackId: "軌跡編號",
@@ -846,6 +933,14 @@ let disqusLoaded = false;
       if (bestKey && bestScore >= 0.6) {
         selected.timestamp = bestKey;
       }
+    }
+
+    if (selected.coord && ((selected.lon && selected.lat) || !columnHasCoordinatePairs(sampleRows, selected.coord))) {
+      delete selected.coord;
+    }
+    if (selected.coord) {
+      delete selected.lon;
+      delete selected.lat;
     }
 
     const missing = ["plate", "timestamp"].filter((key) => !selected[key]);
@@ -1495,8 +1590,41 @@ function downloadTextFile(filename, text, mimeType) {
       throw new Error("No worksheet found.");
     }
 
+    function recoverWorksheetRange(sheet) {
+      const refs = Object.keys(sheet || {}).filter((key) => /^[A-Z]+[0-9]+$/i.test(key));
+      if (!refs.length) return;
+
+      const decoded = refs.map((ref) => XLSX.utils.decode_cell(ref));
+      const recovered = {
+        s: {
+          r: Math.min(...decoded.map((cell) => cell.r)),
+          c: Math.min(...decoded.map((cell) => cell.c))
+        },
+        e: {
+          r: Math.max(...decoded.map((cell) => cell.r)),
+          c: Math.max(...decoded.map((cell) => cell.c))
+        }
+      };
+      const recoveredCellCount = (recovered.e.r - recovered.s.r + 1) * (recovered.e.c - recovered.s.c + 1);
+
+      let currentCellCount = 0;
+      try {
+        const current = sheet["!ref"] ? XLSX.utils.decode_range(sheet["!ref"]) : null;
+        if (current) {
+          currentCellCount = (current.e.r - current.s.r + 1) * (current.e.c - current.s.c + 1);
+        }
+      } catch (error) {
+        currentCellCount = 0;
+      }
+
+      if (!sheet["!ref"] || recoveredCellCount > currentCellCount) {
+        sheet["!ref"] = XLSX.utils.encode_range(recovered);
+      }
+    }
+
     for (const name of sheetNames) {
       const sheet = workbook.Sheets[name];
+      recoverWorksheetRange(sheet);
       const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
       if (rows.length > 0) {
         return rows;

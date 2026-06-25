@@ -20,6 +20,7 @@ const xlsxPath = path.resolve(String(args.xlsx || "H:/CarIdentify/pegion_Car_Ide
 const csvPath = path.resolve(String(args.csv || "H:/CarIdentify/Pegion_Freeway_ETC_Record.csv"));
 const idkcityPath = path.resolve(String(args.idkcity || "H:/CarIdentify/Pegion_IDKCity_Car_Identfy.xlsx"));
 const combinedCoordPath = args["combined-coord"] ? path.resolve(String(args["combined-coord"])) : "";
+const irentPath = args.irent ? path.resolve(String(args.irent)) : "";
 const timeoutMs = Number(args.timeout || 30000);
 const requestedCase = args.case ? String(args.case) : "";
 const MODULE_VERSION = "20260607a";
@@ -29,11 +30,12 @@ const requiredFilesByCase = {
   "csv-single": [csvPath],
   "merged-upload": [xlsxPath, csvPath],
   "idkcity-single": [idkcityPath],
-  "combined-coordinate-sensitive": [combinedCoordPath]
+  "combined-coordinate-sensitive": [combinedCoordPath],
+  "irent-single": [irentPath]
 };
 const requiredFiles = requestedCase
   ? requiredFilesByCase[requestedCase] || []
-  : [xlsxPath, csvPath, idkcityPath].concat(combinedCoordPath ? [combinedCoordPath] : []);
+  : [xlsxPath, csvPath, idkcityPath].concat(combinedCoordPath ? [combinedCoordPath] : [], irentPath ? [irentPath] : []);
 
 for (const filePath of requiredFiles) {
   if (!filePath) {
@@ -773,6 +775,41 @@ async function testStartup(client) {
   assertCondition(noticeInfo.imageLabel.includes("Gemini Pro") && noticeInfo.imageLabel.includes("NT$1,500") && noticeInfo.imageLabel.includes("NT$8,280"), `Unexpected notice image label ${noticeInfo.imageLabel}`);
   assertCondition(noticeInfo.titleColor === "rgb(255, 216, 91)", `Unexpected notice title color ${noticeInfo.titleColor}`);
   assertCondition(noticeInfo.cardTransform && noticeInfo.cardTransform !== "none", `Expected desktop notice card to be shifted up, got ${noticeInfo.cardTransform}`);
+  await click(client, "[data-action='support-types']");
+  const wrongSupportInfo = await evaluate(client, `(() => {
+    const input = document.querySelector(".first-open-support-password");
+    input.value = "wrong-password";
+    document.querySelector("[data-action='unlock-support']")?.click();
+    return {
+      panelHidden: document.querySelector(".first-open-support-panel")?.hidden ?? true,
+      listHidden: document.querySelector(".first-open-support-list")?.hidden ?? true,
+      status: document.querySelector(".first-open-support-status")?.textContent?.trim() || "",
+      statusClass: document.querySelector(".first-open-support-status")?.className || ""
+    };
+  })()`);
+  assertCondition(wrongSupportInfo.panelHidden === false, `Support panel should be visible ${JSON.stringify(wrongSupportInfo)}`);
+  assertCondition(wrongSupportInfo.listHidden === true, `Support list should stay hidden on wrong password ${JSON.stringify(wrongSupportInfo)}`);
+  assertCondition(wrongSupportInfo.status.includes("密碼錯誤") && wrongSupportInfo.statusClass.includes("is-error"), `Wrong password status mismatch ${JSON.stringify(wrongSupportInfo)}`);
+  const unlockedSupportInfo = await evaluate(client, `(() => {
+    const input = document.querySelector(".first-open-support-password");
+    input.value = "@EClLl*j2hLylZ2I@k3&";
+    document.querySelector("[data-action='unlock-support']")?.click();
+    return {
+      listHidden: document.querySelector(".first-open-support-list")?.hidden ?? true,
+      text: document.querySelector(".first-open-support-list")?.textContent || "",
+      status: document.querySelector(".first-open-support-status")?.textContent?.trim() || "",
+      statusClass: document.querySelector(".first-open-support-status")?.className || ""
+    };
+  })()`);
+  assertCondition(unlockedSupportInfo.listHidden === false, `Support list should be visible ${JSON.stringify(unlockedSupportInfo)}`);
+  assertCondition(
+    unlockedSupportInfo.text.includes("警政署智慧分析-車牌辨識系統") &&
+      unlockedSupportInfo.text.includes("警政署智慧分析-高速公路ETC紀錄") &&
+      unlockedSupportInfo.text.includes("irent資料") &&
+      unlockedSupportInfo.text.includes("需要支援其他類型"),
+    `Support list text mismatch ${JSON.stringify(unlockedSupportInfo)}`
+  );
+  assertCondition(unlockedSupportInfo.statusClass.includes("is-success"), `Support success status mismatch ${JSON.stringify(unlockedSupportInfo)}`);
   await closeFirstOpenOverlayIfPresent(client);
   await client.send("Page.reload", { ignoreCache: true });
   await sleep(500);
@@ -989,6 +1026,33 @@ async function testCombinedCoordinateSensitive(client) {
   await assertAnalysisState(client, { minRaw: 2, minClean: 2, minTrack: 2, cleaningSkipped: false });
 }
 
+async function testIrentSingle(client) {
+  await waitForPageReady(client);
+  await closeFirstOpenOverlayIfPresent(client);
+  await uploadAndAnalyze(client, [irentPath]);
+  await assertStatusSuccess(client, "RFX5112");
+  await assertAnalysisState(client, { minRaw: 1000, minClean: 1000, minTrack: 1000, coordinateSwappedFixed: true });
+
+  const snapshot = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+    const track = Array.isArray(state.analysis?.map?.track) ? state.analysis.map.track : [];
+    const lat = track.map((row) => Number(row.lat)).filter(Number.isFinite);
+    const lon = track.map((row) => Number(row.lon)).filter(Number.isFinite);
+    return {
+      trackLength: track.length,
+      latMin: Math.min(...lat),
+      latMax: Math.max(...lat),
+      lonMin: Math.min(...lon),
+      lonMax: Math.max(...lon),
+      first: track[0] || null
+    };
+  })`);
+  assertCondition(snapshot.trackLength >= 1000, `Expected iRent track >= 1000, got ${JSON.stringify(snapshot)}`);
+  assertCondition(snapshot.latMin >= 20 && snapshot.latMax <= 30, `iRent latitude should be in Taiwan range ${JSON.stringify(snapshot)}`);
+  assertCondition(snapshot.lonMin >= 110 && snapshot.lonMax <= 130, `iRent longitude should be in Taiwan range ${JSON.stringify(snapshot)}`);
+  assertCondition(Math.abs(Number(snapshot.first?.lat) - 25.18671) < 0.00001, `Unexpected first iRent latitude ${JSON.stringify(snapshot.first)}`);
+  assertCondition(Math.abs(Number(snapshot.first?.lon) - 121.42366) < 0.00001, `Unexpected first iRent longitude ${JSON.stringify(snapshot.first)}`);
+}
+
 async function main() {
   const results = [];
   const pageWsUrl = await getPageWebSocketUrl();
@@ -1011,11 +1075,14 @@ async function main() {
     ["csv-single", testCsvSingle],
     ["merged-upload", testMergedUpload],
     ["idkcity-single", testIdkcitySingle],
-    ["combined-coordinate-sensitive", testCombinedCoordinateSensitive]
+    ["combined-coordinate-sensitive", testCombinedCoordinateSensitive],
+    ["irent-single", testIrentSingle]
   ];
-  const availableTests = combinedCoordPath
-    ? tests
-    : tests.filter(([name]) => name !== "combined-coordinate-sensitive");
+  const availableTests = tests.filter(([name]) => {
+    if (name === "combined-coordinate-sensitive") return Boolean(combinedCoordPath);
+    if (name === "irent-single") return Boolean(irentPath);
+    return true;
+  });
   const selectedTests = requestedCase
     ? availableTests.filter(([name]) => name === requestedCase)
     : availableTests;
