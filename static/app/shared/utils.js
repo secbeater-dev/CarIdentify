@@ -375,7 +375,7 @@ export function configureSidebarYoutubeEmbed(sidebarYoutube, sidebarYoutubeFallb
 
   const originRaw = String(window.location?.origin || "").trim();
   const origin = originRaw && originRaw !== "null" ? originRaw : "https://car.secbeater.com";
-  const url = new URL("https://www.youtube.com/embed/sKAnrjRpt40");
+  const url = new URL("https://www.youtube.com/embed/DsLqD3MINT8");
   url.searchParams.set("rel", "0");
   url.searchParams.set("playsinline", "1");
   url.searchParams.set("modestbranding", "1");

@@ -32,7 +32,6 @@ import { createMainMapView } from "./views/mainMapView.js?v=20260625a";
 import { createAiView } from "./views/aiView.js?v=20260607a";
 import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260607a";
 
-const FIRST_OPEN_NOTICE_DAILY_KEY = "sb-first-open-notice-20260625-daily";
 const THEME_COOKIE_NAME = "caridentify-theme";
 const DISQUS_SHORTNAME = "secbeatercom";
 const DISQUS_THREAD_URL = "https://car.secbeater.com/?view=comments";
@@ -183,7 +182,7 @@ let disqusLoaded = false;
 
     const originRaw = String(window.location?.origin || "").trim();
     const origin = originRaw && originRaw !== "null" ? originRaw : "https://car.secbeater.com";
-    const url = new URL("https://www.youtube.com/embed/sKAnrjRpt40");
+    const url = new URL("https://www.youtube.com/embed/DsLqD3MINT8");
     url.searchParams.set("rel", "0");
     url.searchParams.set("playsinline", "1");
     url.searchParams.set("modestbranding", "1");
@@ -345,34 +344,7 @@ let disqusLoaded = false;
     window.location.replace(nextUrl.toString());
   }
 
-  function getDailyNoticeStamp() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const day = String(now.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }
-
-  function hasSeenFirstOpenNoticeToday() {
-    try {
-      return window.localStorage.getItem(FIRST_OPEN_NOTICE_DAILY_KEY) === getDailyNoticeStamp();
-    } catch (error) {
-      return false;
-    }
-  }
-
-  function markFirstOpenNoticeShownToday() {
-    try {
-      window.localStorage.setItem(FIRST_OPEN_NOTICE_DAILY_KEY, getDailyNoticeStamp());
-    } catch (error) {
-      // Ignore storage write failures and keep the app functional.
-    }
-  }
-
   function showFirstOpenNoticeIfNeeded() {
-    if (hasSeenFirstOpenNoticeToday()) return;
-    markFirstOpenNoticeShownToday();
-
     const overlay = document.createElement("div");
     overlay.className = "first-open-overlay";
     overlay.setAttribute("role", "dialog");

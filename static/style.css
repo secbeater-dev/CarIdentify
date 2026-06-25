@@ -58,6 +58,14 @@ html[data-theme="dark"] body {
   gap: 12px;
   transition: width 0.22s ease, padding 0.22s ease;
   color: #f2f2f2;
+  font-weight: 700;
+}
+
+.sidebar a,
+.sidebar button,
+.sidebar label,
+.sidebar select {
+  font-weight: 700;
 }
 
 .sidebar .menu-item {
@@ -1808,16 +1816,104 @@ html[data-theme="light"] .run-btn {
 html[data-theme="light"] .sidebar .action-btn,
 html[data-theme="light"] .sidebar .ghost-btn,
 html[data-theme="light"] .sidebar .run-btn {
-  border-color: #4f4f4f;
-  background: #1b1b1b;
-  color: #f2f2f2;
+  border-color: #bccac0;
+  background: #ffffff;
+  color: #172019;
 }
 
 html[data-theme="light"] .sidebar .action-btn.primary,
 html[data-theme="light"] .sidebar .run-btn {
-  border-color: #9a9a9a;
-  background: linear-gradient(90deg, #2e2e2e, #464646);
-  color: #ffffff;
+  border-color: #a9bbb0;
+  background: linear-gradient(180deg, #ffffff, #edf4ef);
+  color: #172019;
+}
+
+html[data-theme="light"] .sidebar {
+  background: linear-gradient(180deg, #ffffff, #eef5f0 72%);
+  border-right-color: #cbd8cf;
+  color: #172019;
+  box-shadow: 10px 0 28px rgba(31, 48, 38, 0.07);
+}
+
+html[data-theme="light"] .sidebar-toggle {
+  border-color: #bccac0;
+  background: #ffffff;
+  color: #172019;
+}
+
+html[data-theme="light"] .brand h1 a,
+html[data-theme="light"] .brand h1 a:visited,
+html[data-theme="light"] .brand h1 a:active,
+html[data-theme="light"] .brand h1 a:hover,
+html[data-theme="light"] .brand h1 a:focus-visible {
+  color: #172019;
+}
+
+html[data-theme="light"] .brand p,
+html[data-theme="light"] .brand-subtitle a {
+  color: #516156;
+}
+
+html[data-theme="light"] .brand-subtitle a {
+  border-bottom-color: rgba(81, 97, 86, 0.35);
+}
+
+html[data-theme="light"] .sidebar .menu-item {
+  color: #304038;
+}
+
+html[data-theme="light"] .sidebar .menu-item:hover {
+  color: #0f3d38;
+  border-color: #b8c7bd;
+  background: #f6faf7;
+}
+
+html[data-theme="light"] .sidebar .menu-item.active {
+  color: #0c3f3b;
+  border-color: #0f766e;
+  background: linear-gradient(90deg, #e8f5f2, #f7fbf8);
+}
+
+html[data-theme="light"] .export-menu,
+html[data-theme="light"] .music-player {
+  border-color: #c3d1c7;
+  background: linear-gradient(180deg, #ffffff, #f3f8f5);
+}
+
+html[data-theme="light"] .export-menu label,
+html[data-theme="light"] .music-header,
+html[data-theme="light"] .music-title {
+  color: #172019;
+}
+
+html[data-theme="light"] .export-menu select {
+  border-color: #bccac0;
+  background: #ffffff;
+  color: #172019;
+}
+
+html[data-theme="light"] .music-video-wrap {
+  border-color: #c3d1c7;
+  background: #edf4ef;
+}
+
+html[data-theme="light"] .music-fallback {
+  color: #516156;
+  background: #f7faf7;
+}
+
+html[data-theme="light"] .music-sub {
+  color: #66766a;
+}
+
+html[data-theme="light"] .music-link {
+  color: #0f766e;
+  border-bottom-color: rgba(15, 118, 110, 0.38);
+}
+
+html[data-theme="light"] .music-link:hover {
+  color: #0c4f48;
+  border-bottom-color: rgba(12, 79, 72, 0.7);
 }
 
 html[data-theme="light"] .settings-panel {

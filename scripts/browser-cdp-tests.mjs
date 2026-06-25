@@ -774,6 +774,15 @@ async function testStartup(client) {
   assertCondition(noticeInfo.titleColor === "rgb(255, 216, 91)", `Unexpected notice title color ${noticeInfo.titleColor}`);
   assertCondition(noticeInfo.cardTransform && noticeInfo.cardTransform !== "none", `Expected desktop notice card to be shifted up, got ${noticeInfo.cardTransform}`);
   await closeFirstOpenOverlayIfPresent(client);
+  await client.send("Page.reload", { ignoreCache: true });
+  await sleep(500);
+  await waitForPageReady(client);
+  const noticeAfterReload = await waitFor(client, "daily notice after reload", async () => {
+    const exists = await evaluate(client, `Boolean(document.querySelector('.first-open-overlay'))`);
+    return exists ? true : null;
+  }, { timeout: 8000, interval: 150 });
+  assertCondition(Boolean(noticeAfterReload), "Expected first-open notice to show after every reload");
+  await closeFirstOpenOverlayIfPresent(client);
   const selectors = [
     "#overnight-map",
     "#hotspots-map",
@@ -797,6 +806,27 @@ async function testStartup(client) {
 
   const initialTheme = await evaluate(client, `document.documentElement.dataset.theme`);
   assertCondition(initialTheme === "light", `Expected default light theme, got ${initialTheme}`);
+  const lightSidebarInfo = await evaluate(client, `(() => {
+    const weightValue = (selector) => Number.parseInt(getComputedStyle(document.querySelector(selector)).fontWeight, 10);
+    return {
+      sidebarBg: getComputedStyle(document.querySelector(".sidebar")).backgroundImage,
+      sidebarColor: getComputedStyle(document.querySelector(".sidebar")).color,
+      brandWeight: weightValue(".brand h1 a"),
+      menuWeight: weightValue(".menu-label"),
+      actionWeight: weightValue("#theme-toggle-label"),
+      musicWeight: weightValue(".music-header-label"),
+      menuColor: getComputedStyle(document.querySelector(".menu-item")).color,
+      musicTitle: document.querySelector(".music-title")?.textContent?.trim() || "",
+      musicHeader: document.querySelector(".music-header-label")?.textContent?.trim() || "",
+      musicHref: document.querySelector(".music-link")?.href || "",
+      youtubeSrc: document.querySelector("#sidebar-youtube")?.src || ""
+    };
+  })()`);
+  assertCondition(lightSidebarInfo.sidebarBg.includes("255, 255, 255") || lightSidebarInfo.sidebarBg.includes("238, 245, 240"), `Expected light sidebar background, got ${lightSidebarInfo.sidebarBg}`);
+  assertCondition(lightSidebarInfo.sidebarColor === "rgb(23, 32, 25)", `Expected dark text in light sidebar, got ${lightSidebarInfo.sidebarColor}`);
+  assertCondition(lightSidebarInfo.brandWeight >= 700 && lightSidebarInfo.menuWeight >= 700 && lightSidebarInfo.actionWeight >= 700 && lightSidebarInfo.musicWeight >= 700, `Expected bold sidebar text, got ${JSON.stringify(lightSidebarInfo)}`);
+  assertCondition(lightSidebarInfo.musicHeader === "經典推薦" && lightSidebarInfo.musicTitle === "YouTube 經典推薦", `Unexpected music labels ${JSON.stringify(lightSidebarInfo)}`);
+  assertCondition(lightSidebarInfo.musicHref === "https://www.youtube.com/watch?v=DsLqD3MINT8" && lightSidebarInfo.youtubeSrc.includes("/embed/DsLqD3MINT8"), `Unexpected YouTube config ${JSON.stringify(lightSidebarInfo)}`);
 
   await click(client, "#theme-toggle");
   await sleep(300);
@@ -804,10 +834,14 @@ async function testStartup(client) {
       theme: document.documentElement.dataset.theme,
       cookie: document.cookie,
       label: document.querySelector("#theme-toggle-label")?.textContent || "",
-      aria: document.querySelector("#theme-toggle")?.getAttribute("aria-label") || ""
+      aria: document.querySelector("#theme-toggle")?.getAttribute("aria-label") || "",
+      sidebarBg: getComputedStyle(document.querySelector(".sidebar")).backgroundImage,
+      sidebarColor: getComputedStyle(document.querySelector(".sidebar")).color
   }))()`);
   assertCondition(darkInfo.theme === "dark", `Expected dark theme after toggle, got ${JSON.stringify(darkInfo)}`);
   assertCondition(String(darkInfo.cookie || "").includes("caridentify-theme=dark"), `Expected dark theme cookie, got ${JSON.stringify(darkInfo)}`);
+  assertCondition(darkInfo.sidebarBg.includes("20, 20, 20") || darkInfo.sidebarBg.includes("13, 13, 13"), `Expected dark sidebar background, got ${JSON.stringify(darkInfo)}`);
+  assertCondition(darkInfo.sidebarColor === "rgb(242, 242, 242)", `Expected light text in dark sidebar, got ${JSON.stringify(darkInfo)}`);
   await reloadPage(client);
   const persistedTheme = await evaluate(client, `document.documentElement.dataset.theme`);
   assertCondition(persistedTheme === "dark", `Expected persisted dark theme, got ${persistedTheme}`);
@@ -841,6 +875,16 @@ async function testStartup(client) {
   assertCondition(commentsInfo.telegramHref === "https://t.me/secbeater", `Unexpected comments Telegram link ${commentsInfo.telegramHref}`);
   assertCondition(commentsInfo.disqusPage?.url === "https://car.secbeater.com/?view=comments", `Unexpected Disqus page URL ${JSON.stringify(commentsInfo.disqusPage)}`);
   assertCondition(commentsInfo.disqusPage?.identifier === "caridentify-comments", `Unexpected Disqus identifier ${JSON.stringify(commentsInfo.disqusPage)}`);
+  await ensureView(client, "ai");
+  const aiCardInfo = await evaluate(client, `(() => {
+    const card = document.querySelector(".ai-service-card");
+    return {
+      text: card?.textContent || "",
+      hrefs: Array.from(card?.querySelectorAll("a") || []).map((link) => link.href)
+    };
+  })()`);
+  assertCondition(!aiCardInfo.text.includes("SecBeater 群組") && !aiCardInfo.text.includes("歡迎聯繫"), `AI service card still contains group copy: ${JSON.stringify(aiCardInfo)}`);
+  assertCondition(!aiCardInfo.hrefs.some((href) => href.includes("line.me/ti/g2")), `AI service card still contains LINE link: ${JSON.stringify(aiCardInfo)}`);
   await ensureView(client, "map");
 }
 
