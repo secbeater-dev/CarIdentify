@@ -21,9 +21,10 @@ const csvPath = path.resolve(String(args.csv || "H:/CarIdentify/Pegion_Freeway_E
 const idkcityPath = path.resolve(String(args.idkcity || "H:/CarIdentify/Pegion_IDKCity_Car_Identfy.xlsx"));
 const combinedCoordPath = args["combined-coord"] ? path.resolve(String(args["combined-coord"])) : "";
 const irentPath = args.irent ? path.resolve(String(args.irent)) : "";
+const routineFilterPath = args["routine-filter"] ? path.resolve(String(args["routine-filter"])) : "";
 const timeoutMs = Number(args.timeout || 30000);
 const requestedCase = args.case ? String(args.case) : "";
-const MODULE_VERSION = "20260607a";
+const MODULE_VERSION = "20260729c";
 
 const requiredFilesByCase = {
   "xlsx-single": [xlsxPath],
@@ -31,11 +32,16 @@ const requiredFilesByCase = {
   "merged-upload": [xlsxPath, csvPath],
   "idkcity-single": [idkcityPath],
   "combined-coordinate-sensitive": [combinedCoordPath],
-  "irent-single": [irentPath]
+  "irent-single": [irentPath],
+  "routine-filter-table": [routineFilterPath]
 };
 const requiredFiles = requestedCase
   ? requiredFilesByCase[requestedCase] || []
-  : [xlsxPath, csvPath, idkcityPath].concat(combinedCoordPath ? [combinedCoordPath] : [], irentPath ? [irentPath] : []);
+  : [xlsxPath, csvPath, idkcityPath].concat(
+      combinedCoordPath ? [combinedCoordPath] : [],
+      irentPath ? [irentPath] : [],
+      routineFilterPath ? [routineFilterPath] : []
+    );
 
 for (const filePath of requiredFiles) {
   if (!filePath) {
@@ -490,6 +496,57 @@ function assertCondition(condition, message) {
   }
 }
 
+function parseCssColor(value) {
+  const text = String(value || "").trim().toLowerCase();
+  const hex = text.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const raw = hex[1].length === 3
+      ? hex[1].split("").map((char) => `${char}${char}`).join("")
+      : hex[1];
+    return {
+      r: Number.parseInt(raw.slice(0, 2), 16),
+      g: Number.parseInt(raw.slice(2, 4), 16),
+      b: Number.parseInt(raw.slice(4, 6), 16)
+    };
+  }
+  const rgb = text.match(/^rgba?\(([^)]+)\)$/);
+  if (!rgb) return null;
+  const parts = rgb[1].split(",").slice(0, 3).map((part) => Number.parseFloat(part.trim()));
+  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null;
+  return { r: parts[0], g: parts[1], b: parts[2] };
+}
+
+function assertMonochromeColor(value, label) {
+  const values = Array.isArray(value) ? value : [value];
+  for (const item of values) {
+    const color = parseCssColor(item);
+    assertCondition(Boolean(color), `${label} is not a parseable CSS color: ${JSON.stringify(item)}`);
+    assertCondition(color.r === color.g && color.g === color.b, `${label} is not monochrome: ${JSON.stringify(item)}`);
+  }
+}
+
+function assertMonochromeCssTokens(value, label) {
+  const tokens = String(value || "").match(/#[0-9a-f]{3,6}|rgba?\([^)]+\)/gi) || [];
+  assertCondition(tokens.length > 0, `${label} has no CSS color tokens: ${JSON.stringify(value)}`);
+  assertMonochromeColor(tokens, label);
+}
+
+function assertCssColorEquals(actual, expected, label) {
+  const actualColor = parseCssColor(actual);
+  const expectedColor = parseCssColor(expected);
+  assertCondition(Boolean(actualColor && expectedColor), `${label} is not parseable: ${JSON.stringify({ actual, expected })}`);
+  assertCondition(
+    actualColor.r === expectedColor.r && actualColor.g === expectedColor.g && actualColor.b === expectedColor.b,
+    `${label} mismatch: ${JSON.stringify({ actual, expected })}`
+  );
+}
+
+function formatExpectedRoutinePercent(value) {
+  if (!Number.isFinite(value) || value <= 0) return "0%";
+  if (value >= 10) return `${Math.round(value)}%`;
+  return `${value.toFixed(1)}%`;
+}
+
 function assertIncludes(haystack, needle, message) {
   if (!String(haystack || "").includes(needle)) {
     throw new Error(`${message} | actual=${JSON.stringify(haystack)}`);
@@ -614,49 +671,149 @@ async function assertSummaryContains(client, text) {
 
 async function assertReadableRoutineChart(client, expectedTheme) {
   const snapshot = await waitFor(client, `readable routine chart ${expectedTheme}`, async () => {
-    const info = await evaluate(client, `(() => {
-      const canvas = document.querySelector("#routine-hour-chart");
-      const chart = canvas && window.Chart ? window.Chart.getChart(canvas) : null;
+    const info = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+      const chartRoot = document.querySelector("#routine-hour-chart");
       const title = document.querySelector(".routine-chart-title");
       const wrap = document.querySelector(".chart-wrap");
-      if (!chart) return null;
-      const tooltipLabel = chart.options.plugins.tooltip.callbacks.label({ parsed: { y: 5 } });
+      const summary = document.querySelector("#routine-filter-summary");
+      const status = document.querySelector("#routine-filter-status");
+      const selectedChip = document.querySelector(".routine-hour-chip.is-selected");
+      const applyButton = document.querySelector("#routine-filter-apply");
+      const table = document.querySelector("#table-routine");
+      const tableHeader = table?.querySelector("th");
+      const mapTile = document.querySelector("#routine-map .leaflet-tile");
+      const mapMarker = state.routineLayers?.points?.getLayers?.()[0] || null;
+      if (!chartRoot) return null;
+      const titleStyle = title ? getComputedStyle(title) : null;
+      const wrapStyle = wrap ? getComputedStyle(wrap) : null;
+      const summaryStyle = summary ? getComputedStyle(summary) : null;
+      const statusStyle = status ? getComputedStyle(status) : null;
+      const selectedChipStyle = selectedChip ? getComputedStyle(selectedChip) : null;
+      const applyButtonStyle = applyButton ? getComputedStyle(applyButton) : null;
+      const tableHeaderStyle = tableHeader ? getComputedStyle(tableHeader) : null;
+      const mapTileStyle = mapTile ? getComputedStyle(mapTile) : null;
+      const tiles = Array.from(document.querySelectorAll("#routine-hour-grid .routine-hour-chip"));
+      const columns = Array.from(chartRoot.querySelectorAll(".hour-column"));
+      const chartRootStyle = getComputedStyle(chartRoot);
       return {
         theme: document.documentElement.dataset.theme,
-        datasetBg: chart.data.datasets[0]?.backgroundColor || "",
-        datasetHoverBg: chart.data.datasets[0]?.hoverBackgroundColor || "",
-        borderWidth: Number(chart.data.datasets[0]?.borderWidth || 0),
-        borderRadius: Number(chart.data.datasets[0]?.borderRadius || 0),
-        xTickColor: chart.options.scales.x.ticks.color || "",
-        yTickColor: chart.options.scales.y.ticks.color || "",
-        xTickFontSize: Number(chart.options.scales.x.ticks.font.size || 0),
-        yTickFontSize: Number(chart.options.scales.y.ticks.font.size || 0),
-        legendFontSize: Number(chart.options.plugins.legend.labels.font.size || 0),
-        xTitle: chart.options.scales.x.title.text || "",
-        yTitle: chart.options.scales.y.title.text || "",
-        tooltipLabel,
-        titleColor: title ? getComputedStyle(title).color : "",
-        wrapHeight: wrap ? Number.parseFloat(getComputedStyle(wrap).height) : 0
+        chartClassName: chartRoot.className || "",
+        chartDisplay: chartRootStyle.display || "",
+        chartColumns: chartRootStyle.gridTemplateColumns || "",
+        chartColumnCount: columns.length,
+        hasCanvas: Boolean(chartRoot.querySelector("canvas")),
+        tiles: tiles.map((tile) => ({
+          hour: Number(tile.dataset.hour),
+          text: tile.textContent.trim(),
+          className: tile.className,
+          ariaPressed: tile.getAttribute("aria-pressed"),
+          color: getComputedStyle(tile).color,
+          backgroundColor: getComputedStyle(tile).backgroundColor,
+          borderColor: getComputedStyle(tile).borderTopColor,
+          boxShadow: getComputedStyle(tile).boxShadow
+        })),
+        columns: columns.map((column) => {
+          const frame = column.querySelector(".hour-bar-frame");
+          const fill = column.querySelector(".hour-bar-fill");
+          const percent = column.querySelector(".hour-bar-percent");
+          const count = column.querySelector(".hour-bar-count");
+          const label = column.querySelector(".hour-label-full");
+          const frameStyle = frame ? getComputedStyle(frame) : null;
+          const fillStyle = fill ? getComputedStyle(fill) : null;
+          const percentStyle = percent ? getComputedStyle(percent) : null;
+          const labelStyle = label ? getComputedStyle(label) : null;
+          return {
+            hour: Number(column.dataset.hour),
+            label: label?.textContent?.trim() || "",
+            count: count?.textContent?.trim() || "",
+            percent: percent?.textContent?.trim() || "",
+            barHeight: column.style.getPropertyValue("--bar-height") || "",
+            frameHeight: frameStyle?.height || "",
+            frameBackground: frameStyle?.backgroundColor || "",
+            frameBorderColor: frameStyle?.borderTopColor || "",
+            fillHeight: fill?.style?.height || "",
+            fillBackground: fillStyle?.backgroundColor || "",
+            percentColor: percentStyle?.color || "",
+            percentBackground: percentStyle?.backgroundColor || "",
+            labelColor: labelStyle?.color || ""
+          };
+        }),
+        titleColor: titleStyle?.color || "",
+        wrapBorderColor: wrapStyle?.borderTopColor || "",
+        summaryColor: summaryStyle?.color || "",
+        summaryBg: summaryStyle?.backgroundColor || "",
+        summaryBorderColor: summaryStyle?.borderTopColor || "",
+        statusColor: statusStyle?.color || "",
+        statusBg: statusStyle?.backgroundColor || "",
+        statusBorderColor: statusStyle?.borderTopColor || "",
+        selectedChipColor: selectedChipStyle?.color || "",
+        selectedChipBorderColor: selectedChipStyle?.borderTopColor || "",
+        selectedChipBgImage: selectedChipStyle?.backgroundImage || "",
+        applyButtonColor: applyButtonStyle?.color || "",
+        applyButtonBorderColor: applyButtonStyle?.borderTopColor || "",
+        applyButtonBgImage: applyButtonStyle?.backgroundImage || "",
+        tableHeaderColor: tableHeaderStyle?.color || "",
+        tableHeaderBg: tableHeaderStyle?.backgroundColor || "",
+        mapTileFilter: mapTileStyle?.filter || "",
+        mapMarkerStroke: mapMarker?.options?.color || "",
+        mapMarkerFill: mapMarker?.options?.fillColor || "",
+        expectedPointColor: state.mapSettings?.pointColor || "",
+        hourlyCounts: Array.isArray(state.routineFilteredTrack) ? state.routineFilteredTrack.reduce((counts, point) => {
+          const match = String(point.time || "").match(/\\b(\\d{1,2}):(\\d{2})(?::\\d{2})?\\b/);
+          const hour = match ? Number(match[1]) : NaN;
+          if (Number.isInteger(hour) && hour >= 0 && hour <= 23) counts[hour] += 1;
+          return counts;
+        }, Array.from({ length: 24 }, () => 0)) : [],
+        wrapHeight: wrap ? Number.parseFloat(wrapStyle.height) : 0
       };
-    })()`);
+    })`);
     return info?.theme === expectedTheme ? info : null;
   }, { timeout: 10000, interval: 200 });
 
   const expectLight = expectedTheme === "light";
-  assertCondition(snapshot.xTitle === "時段" && snapshot.yTitle === "辨識數量", `Routine chart axis titles mismatch ${JSON.stringify(snapshot)}`);
-  assertCondition(snapshot.tooltipLabel === "辨識數量：5 筆", `Routine chart tooltip label mismatch ${JSON.stringify(snapshot)}`);
-  assertCondition(snapshot.xTickFontSize >= 13 && snapshot.yTickFontSize >= 13 && snapshot.legendFontSize >= 14, `Routine chart fonts too small ${JSON.stringify(snapshot)}`);
-  assertCondition(snapshot.borderWidth >= 2 && snapshot.borderRadius >= 7, `Routine chart bars lack emphasis ${JSON.stringify(snapshot)}`);
+  const expectedTileLabels = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, "0"));
+  const expectedColumnLabels = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, "0")}-${String(hour + 1).padStart(2, "0")}`);
+  const counts = Array.isArray(snapshot.hourlyCounts) && snapshot.hourlyCounts.length === 24
+    ? snapshot.hourlyCounts.map((value) => Number(value) || 0)
+    : Array.from({ length: 24 }, () => 0);
+  const max = Math.max(1, ...counts);
+  const total = counts.reduce((sum, count) => sum + count, 0);
+
   assertCondition(snapshot.wrapHeight >= 300, `Routine chart container too short ${JSON.stringify(snapshot)}`);
-  if (expectLight) {
-    assertCondition(snapshot.xTickColor === "#172019" && snapshot.yTickColor === "#172019", `Light chart tick colors mismatch ${JSON.stringify(snapshot)}`);
-    assertCondition(String(snapshot.datasetBg).includes("15, 118, 110"), `Light chart bar color mismatch ${JSON.stringify(snapshot)}`);
-    assertCondition(snapshot.titleColor === "rgb(23, 32, 25)", `Light chart title color mismatch ${JSON.stringify(snapshot)}`);
-  } else {
-    assertCondition(snapshot.xTickColor === "#f7fffc" && snapshot.yTickColor === "#f7fffc", `Dark chart tick colors mismatch ${JSON.stringify(snapshot)}`);
-    assertCondition(String(snapshot.datasetBg).includes("63, 220, 196"), `Dark chart bar color mismatch ${JSON.stringify(snapshot)}`);
-    assertCondition(snapshot.titleColor === "rgb(247, 255, 252)", `Dark chart title color mismatch ${JSON.stringify(snapshot)}`);
+  assertCondition(snapshot.hasCanvas === false, `Phone-style routine chart should render HTML, not canvas ${JSON.stringify(snapshot)}`);
+  assertIncludes(snapshot.chartClassName, "hour-chart", `Routine chart should use phone hour-chart class`);
+  assertIncludes(snapshot.chartClassName, "hour-chart-vertical", `Routine chart should use phone hour-chart-vertical class`);
+  assertCondition(snapshot.chartDisplay === "grid", `Routine chart should use CSS grid ${JSON.stringify(snapshot)}`);
+  assertCondition(snapshot.chartColumnCount === 24, `Routine chart should render 24 columns ${JSON.stringify(snapshot)}`);
+  assertCondition(snapshot.tiles.length === 24, `Routine hour selector should render 24 phone-style tiles ${JSON.stringify(snapshot)}`);
+  assertCondition(JSON.stringify(snapshot.tiles.map((tile) => tile.text)) === JSON.stringify(expectedTileLabels), `Routine hour tile labels mismatch ${JSON.stringify(snapshot)}`);
+  assertCondition(JSON.stringify(snapshot.columns.map((column) => column.label)) === JSON.stringify(expectedColumnLabels), `Routine chart labels mismatch ${JSON.stringify(snapshot)}`);
+
+  for (const tile of snapshot.tiles) {
+    assertIncludes(tile.className, "hour-tile", `Routine hour tile should include phone hour-tile class`);
+    assertIncludes(tile.className, tile.hour < 6 || tile.hour >= 18 ? "night-hour" : "day-hour", `Routine hour tile tone mismatch`);
+    if (tile.ariaPressed === "true") {
+      assertIncludes(tile.className, "active", `Selected routine hour tile should use active class`);
+    } else {
+      assertIncludes(tile.className, "inactive", `Unselected routine hour tile should use inactive class`);
+    }
   }
+
+  for (const column of snapshot.columns) {
+    const count = counts[column.hour] || 0;
+    const percent = total ? (count / total) * 100 : 0;
+    const height = count ? (count / max) * 100 : 0;
+    assertCondition(column.count === String(count), `Routine chart count mismatch ${JSON.stringify({ column, counts, snapshot })}`);
+    assertCondition(column.percent === formatExpectedRoutinePercent(percent), `Routine chart percent mismatch ${JSON.stringify({ column, counts, snapshot })}`);
+    assertCondition(column.fillHeight === `${height}%`, `Routine chart fill height mismatch ${JSON.stringify({ column, counts, snapshot })}`);
+    assertCondition(column.barHeight === `${height}%`, `Routine chart CSS height variable mismatch ${JSON.stringify({ column, counts, snapshot })}`);
+  }
+
+  assertCssColorEquals(snapshot.columns[0]?.fillBackground || "", expectLight ? "#111111" : "#f5f5f4", "Routine phone-style bar fill");
+  assertCondition(String(snapshot.selectedChipBgImage).includes("none") || snapshot.selectedChipBgImage === "", `Phone-style selected tile should not use gradient ${JSON.stringify(snapshot)}`);
+  assertCondition(!String(snapshot.mapTileFilter).includes("grayscale"), `Routine map tiles should stay colorful ${JSON.stringify(snapshot)}`);
+  assertCssColorEquals(snapshot.mapMarkerStroke, snapshot.expectedPointColor, "Routine marker stroke should use map point color");
+  assertCssColorEquals(snapshot.mapMarkerFill, snapshot.expectedPointColor, "Routine marker fill should use map point color");
   return snapshot;
 }
 
@@ -670,6 +827,29 @@ async function getRoutineExpectedMatchCount(client, selectedHours) {
     });
     return filtered.length;
   })`);
+}
+
+async function assertRoutineTableOnlyContainsHours(client, expectedHours, expectedCount) {
+  const allowed = expectedHours.map((hour) => Number(hour));
+  return waitFor(client, `routine table filtered to ${allowed.join(",")}`, async () => {
+    const snapshot = await evaluate(client, `(() => {
+      const rows = Array.from(document.querySelectorAll("#table-routine tbody tr"));
+      const hours = rows.map((row) => {
+        const text = row.querySelector("td")?.textContent?.trim() || "";
+        const match = text.match(/\\b(\\d{1,2}):(\\d{2})(?::\\d{2})?\\b/);
+        return match ? Number(match[1]) : NaN;
+      });
+      return {
+        count: rows.length,
+        hours,
+        allAllowed: hours.length > 0 && hours.every((hour) => ${JSON.stringify(allowed)}.includes(hour))
+      };
+    })()`);
+    if (snapshot?.count === expectedCount && snapshot.allAllowed) {
+      return snapshot;
+    }
+    return null;
+  }, { timeout: 12000, interval: 200 });
 }
 
 async function assertMapCenteredNear(client, stateKey, lat, lon, tolerance = 0.0035) {
@@ -1109,6 +1289,26 @@ async function testIrentSingle(client) {
   assertCondition(Math.abs(Number(snapshot.first?.lon) - 121.42366) < 0.00001, `Unexpected first iRent longitude ${JSON.stringify(snapshot.first)}`);
 }
 
+async function testRoutineFilterTable(client) {
+  await waitForPageReady(client);
+  await closeFirstOpenOverlayIfPresent(client);
+  await uploadAndAnalyze(client, [routineFilterPath]);
+  await assertStatusSuccess(client, "RTN1234");
+
+  await ensureView(client, "routine");
+  await assertSummaryContains(client, "全天");
+  await assertRowCount(client, "#table-routine", 4);
+  await waitForMapMode(client, "#routine-map", "leaflet");
+  await assertReadableRoutineChart(client, "light");
+
+  await selectRoutineHours(client, [4]);
+  await click(client, "#routine-filter-apply");
+  await assertSummaryContains(client, "04");
+  await assertSummaryContains(client, "命中 2 筆");
+  await assertRowCount(client, "#table-routine", 2);
+  await assertRoutineTableOnlyContainsHours(client, [4], 2);
+}
+
 async function main() {
   const results = [];
   const pageWsUrl = await getPageWebSocketUrl();
@@ -1132,11 +1332,13 @@ async function main() {
     ["merged-upload", testMergedUpload],
     ["idkcity-single", testIdkcitySingle],
     ["combined-coordinate-sensitive", testCombinedCoordinateSensitive],
-    ["irent-single", testIrentSingle]
+    ["irent-single", testIrentSingle],
+    ["routine-filter-table", testRoutineFilterTable]
   ];
   const availableTests = tests.filter(([name]) => {
     if (name === "combined-coordinate-sensitive") return Boolean(combinedCoordPath);
     if (name === "irent-single") return Boolean(irentPath);
+    if (name === "routine-filter-table") return Boolean(routineFilterPath);
     return true;
   });
   const selectedTests = requestedCase

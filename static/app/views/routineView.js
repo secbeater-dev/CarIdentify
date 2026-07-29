@@ -1,16 +1,16 @@
-﻿import { els } from "../shared/dom.js?v=20260408e";
-import { DEFAULT_ROUTINE_FILTER, MAP_DEFAULT_VIEW, ROUTINE_HOUR_OPTIONS } from "../shared/constants.js?v=20260408e";
-import { state } from "../shared/state.js?v=20260408e";
-import { createBaseMap, ensureMapHost, fitMapToLatLngs, renderEmptyMapHost } from "../shared/leaflet.js?v=20260408e";
-import { buildRoutineViewModel } from "../analysis/selectors.js?v=20260408e";
-import { normalizeMapSettings, pad2 } from "../shared/utils.js?v=20260408e";
+﻿import { els } from "../shared/dom.js?v=20260729c";
+import { DEFAULT_ROUTINE_FILTER, MAP_DEFAULT_VIEW, ROUTINE_HOUR_OPTIONS } from "../shared/constants.js?v=20260729c";
+import { state } from "../shared/state.js?v=20260729c";
+import { createBaseMap, ensureMapHost, fitMapToLatLngs, renderEmptyMapHost } from "../shared/leaflet.js?v=20260729c";
+import { buildRoutineViewModel } from "../analysis/selectors.js?v=20260729c";
+import { normalizeMapSettings, pad2 } from "../shared/utils.js?v=20260729c";
 import {
   areRoutineFiltersEqual,
   formatRoutineSelectedHours,
   getRoutineFilterLabel,
   normalizeRoutineFilter
-} from "../analysis/timeFilters.js?v=20260408e";
-import { renderTable } from "./tableView.js?v=20260408e";
+} from "../analysis/timeFilters.js?v=20260729c";
+import { renderTable } from "./tableView.js?v=20260729c";
 
 let routineMarkerByKey = new Map();
 let activeRoutineKey = "";
@@ -19,6 +19,21 @@ let activeRoutineMarker = null;
 function formatRoutineCoord(value) {
   const num = Number(value);
   return Number.isFinite(num) ? num.toFixed(6) : "";
+}
+
+function formatRoutinePercent(count, total) {
+  if (!Number.isFinite(count) || !Number.isFinite(total) || total <= 0 || count <= 0) return "0%";
+  const percentage = (count / total) * 100;
+  if (percentage >= 10) return `${Math.round(percentage)}%`;
+  return `${percentage.toFixed(1)}%`;
+}
+
+function getRoutineHourRangeLabel(hour) {
+  return `${pad2(hour)}-${pad2(hour + 1)}`;
+}
+
+function isRoutineNightHour(hour) {
+  return hour < 6 || hour >= 18;
 }
 
 function buildRoutinePointKey(point) {
@@ -60,7 +75,7 @@ function highlightRoutineMarker(marker) {
     color: "#ffffff",
     fillColor: "#39ff14",
     fillOpacity: 0.96,
-    weight: 2.2
+    weight: 2.4
   });
   activeRoutineMarker = marker;
 }
@@ -195,14 +210,16 @@ function renderRoutineHourGrid(draftFilter, appliedFilter) {
   const fragment = document.createDocumentFragment();
 
   for (const hour of ROUTINE_HOUR_OPTIONS) {
+    const selected = draftHours.has(hour);
+    const toneClass = isRoutineNightHour(hour) ? "night-hour" : "day-hour";
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "routine-hour-chip";
+    button.className = `routine-hour-chip hour-tile ${toneClass} ${selected ? "active" : "inactive"}`;
     button.dataset.hour = String(hour);
     button.title = `${pad2(hour)}:00-${pad2(hour)}:59`;
-    button.setAttribute("aria-label", `選擇 ${pad2(hour)} 點時段`);
-    button.setAttribute("aria-pressed", draftHours.has(hour) ? "true" : "false");
-    if (draftHours.has(hour)) {
+    button.setAttribute("aria-label", getRoutineHourRangeLabel(hour));
+    button.setAttribute("aria-pressed", selected ? "true" : "false");
+    if (selected) {
       button.classList.add("is-selected");
     }
     if (appliedHours.has(hour)) {
@@ -291,145 +308,30 @@ export function getRoutineDraftLabel() {
 }
 
 export function renderHourlyChart(hourlyCounts) {
-  if (!els.routineHourChart || typeof Chart === "undefined") return;
-  const labels = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, "0")}:00`);
-  const isLightTheme = document.documentElement.dataset.theme !== "dark";
-  const palette = isLightTheme
-    ? {
-        bar: "rgba(15, 118, 110, 0.88)",
-        barHover: "rgba(12, 95, 88, 0.98)",
-        border: "#0b5f58",
-        text: "#172019",
-        mutedText: "#304038",
-        grid: "rgba(23, 32, 25, 0.16)",
-        zeroGrid: "rgba(23, 32, 25, 0.34)",
-        tooltipBg: "rgba(12, 31, 28, 0.96)",
-        tooltipText: "#ffffff"
-      }
-    : {
-        bar: "rgba(63, 220, 196, 0.82)",
-        barHover: "rgba(121, 255, 229, 0.95)",
-        border: "#a7fff1",
-        text: "#f7fffc",
-        mutedText: "#d5fff6",
-        grid: "rgba(213, 255, 246, 0.18)",
-        zeroGrid: "rgba(213, 255, 246, 0.38)",
-        tooltipBg: "rgba(2, 20, 18, 0.96)",
-        tooltipText: "#f7fffc"
-      };
-  const axisFont = {
-    size: 13,
-    weight: "700",
-    family: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-  };
-  const titleFont = {
-    size: 14,
-    weight: "800",
-    family: axisFont.family
-  };
-
+  if (!els.routineHourChart) return;
   if (state.hourChart) {
-    state.hourChart.destroy();
+    state.hourChart.destroy?.();
     state.hourChart = null;
   }
 
-  els.routineHourChart.removeAttribute("height");
-  els.routineHourChart.removeAttribute("width");
-  els.routineHourChart.style.height = "100%";
-  els.routineHourChart.style.width = "100%";
-
-  state.hourChart = new Chart(els.routineHourChart, {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [
-        {
-          label: "辨識數量",
-          data: hourlyCounts,
-          backgroundColor: palette.bar,
-          hoverBackgroundColor: palette.barHover,
-          borderColor: palette.border,
-          hoverBorderColor: palette.border,
-          borderWidth: 2,
-          borderRadius: 7,
-          borderSkipped: false,
-          maxBarThickness: 34
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: {
-          title: {
-            display: true,
-            text: "時段",
-            color: palette.text,
-            font: titleFont,
-            padding: { top: 8 }
-          },
-          ticks: {
-            color: palette.text,
-            font: axisFont,
-            maxRotation: 0,
-            autoSkip: true,
-            maxTicksLimit: 12
-          },
-          grid: {
-            color: palette.grid,
-            tickColor: palette.grid,
-            lineWidth: 1
-          }
-        },
-        y: {
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: "辨識數量",
-            color: palette.text,
-            font: titleFont,
-            padding: { bottom: 8 }
-          },
-          ticks: {
-            color: palette.text,
-            precision: 0,
-            font: axisFont,
-            padding: 8
-          },
-          grid: {
-            color: (context) => (context.tick?.value === 0 ? palette.zeroGrid : palette.grid),
-            tickColor: palette.grid,
-            lineWidth: (context) => (context.tick?.value === 0 ? 1.4 : 1)
-          }
-        }
-      },
-      plugins: {
-        legend: {
-          labels: {
-            color: palette.text,
-            font: titleFont,
-            boxWidth: 16,
-            boxHeight: 12,
-            padding: 18
-          }
-        },
-        tooltip: {
-          backgroundColor: palette.tooltipBg,
-          titleColor: palette.tooltipText,
-          bodyColor: palette.tooltipText,
-          borderColor: palette.border,
-          borderWidth: 1,
-          padding: 12,
-          titleFont: { size: 14, weight: "800", family: axisFont.family },
-          bodyFont: { size: 14, weight: "700", family: axisFont.family },
-          callbacks: {
-            label: (context) => `辨識數量：${context.parsed.y} 筆`
-          }
-        }
-      }
-    }
-  });
+  const counts = Array.from({ length: 24 }, (_, hour) => Number(hourlyCounts?.[hour]) || 0);
+  const max = Math.max(1, ...counts);
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  els.routineHourChart.className = "routine-hour-chart hour-chart hour-chart-vertical";
+  els.routineHourChart.innerHTML = counts
+    .map((count, hour) => {
+      const height = count ? (count / max) * 100 : 0;
+      const percent = formatRoutinePercent(count, total);
+      return `<div class="hour-column" data-hour="${hour}" style="--bar-height:${height}%">
+        <div class="hour-bar-count">${count}</div>
+        <div class="hour-bar-frame">
+          <div class="hour-bar-fill" style="height:${height}%"></div>
+          <span class="hour-bar-percent">${percent}</span>
+        </div>
+        <div class="hour-label-full">${getRoutineHourRangeLabel(hour)}</div>
+      </div>`;
+    })
+    .join("");
 }
 
 export function renderRoutineView(result) {

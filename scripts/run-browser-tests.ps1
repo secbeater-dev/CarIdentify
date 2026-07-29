@@ -7,6 +7,7 @@ param(
   [string]$IdkcityPath = 'H:\CarIdentify\Pegion_IDKCity_Car_Identfy.xlsx',
   [string]$CombinedCoordPath = '',
   [string]$IrentPath = '',
+  [string]$RoutineFilterPath = '',
   [string[]]$Cases = @()
 )
 
@@ -80,7 +81,8 @@ function Invoke-EdgeCase(
   [string]$ResolvedCsv,
   [string]$ResolvedIdkcity,
   [string]$ResolvedCombinedCoord,
-  [string]$ResolvedIrent
+  [string]$ResolvedIrent,
+  [string]$ResolvedRoutineFilter
 ) {
   if (Test-Path $ProfileDir) {
     Remove-Item -LiteralPath $ProfileDir -Recurse -Force
@@ -116,6 +118,9 @@ function Invoke-EdgeCase(
     }
     if (-not [string]::IsNullOrWhiteSpace($ResolvedIrent)) {
       $nodeArgs += @('--irent', $ResolvedIrent)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ResolvedRoutineFilter)) {
+      $nodeArgs += @('--routine-filter', $ResolvedRoutineFilter)
     }
 
     & $NodePath @nodeArgs 2>&1 | ForEach-Object { Write-Host $_ }
@@ -166,6 +171,7 @@ $resolvedCsv = Resolve-OptionalPath $CsvPath
 $resolvedIdkcity = Resolve-OptionalPath $IdkcityPath
 $resolvedCombinedCoord = Resolve-OptionalPath $CombinedCoordPath
 $resolvedIrent = Resolve-OptionalPath $IrentPath
+$resolvedRoutineFilter = Resolve-OptionalPath $RoutineFilterPath
 
 $pythonArgs = if ((Split-Path $pythonPath -Leaf).ToLowerInvariant() -eq 'py.exe') {
   @('-3', '-m', 'http.server', $ServerPort)
@@ -189,6 +195,9 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedCombinedCoord) -and $cases -notco
 if (-not [string]::IsNullOrWhiteSpace($resolvedIrent) -and $cases -notcontains 'irent-single') {
   $cases += 'irent-single'
 }
+if (-not [string]::IsNullOrWhiteSpace($resolvedRoutineFilter) -and $cases -notcontains 'routine-filter-table') {
+  $cases += 'routine-filter-table'
+}
 $results = @()
 
 try {
@@ -206,7 +215,8 @@ try {
       -ResolvedCsv $resolvedCsv `
       -ResolvedIdkcity $resolvedIdkcity `
       -ResolvedCombinedCoord $resolvedCombinedCoord `
-      -ResolvedIrent $resolvedIrent
+      -ResolvedIrent $resolvedIrent `
+      -ResolvedRoutineFilter $resolvedRoutineFilter
     $results += [pscustomobject]@{
       CaseName = $caseName
       ExitCode = $exitCode
