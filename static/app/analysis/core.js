@@ -1,7 +1,7 @@
 import {
   DEFAULT_NORMAL_DRIVING_SPEED_KMH,
   HOME
-} from "../shared/constants.js?v=20260729c";
+} from "../shared/constants.js?v=20260729d";
 import {
   formatDateTime,
   formatDuration,
@@ -12,7 +12,8 @@ import {
   overlapNightHours,
   parseRocDateTime,
   toNumber
-} from "../shared/utils.js?v=20260729c";
+} from "../shared/utils.js?v=20260729d";
+import { parseGpsRecordListMatrix } from "./workbookFormats.js?v=20260729d";
 
 export function normalizeHeaderKey(value) {
   return String(value ?? "")
@@ -25,12 +26,12 @@ export function columnAliases() {
   return {
     id: ["編號", "id", "serial", "序號"],
     plate: ["車號", "車牌", "plate", "車牌號碼"],
-    timestamp: ["時間", "time", "timestamp", "日期時間", "辨識時間", "偵測日期"],
+    timestamp: ["時間", "定位時間", "time", "timestamp", "日期時間", "辨識時間", "偵測日期"],
     coord: ["經緯度", "座標", "坐標", "coordinates", "coordinate", "latlon", "lonlat"],
     lon: ["經度", "longitude", "lon", "lng", "x"],
     lat: ["緯度", "latitude", "lat", "y"],
-    source: ["來源", "縣市", "source", "city", "行政區", "國道系統", "行進方向", "門架名稱"],
-    note: ["備註", "地址", "路口", "location", "place", "備考", "門架名稱", "國道系統", "行進方向"]
+    source: ["來源", "定位位置", "縣市", "source", "city", "行政區", "國道系統", "行進方向", "門架名稱"],
+    note: ["備註", "地標名稱", "地址", "路口", "location", "place", "備考", "門架名稱", "國道系統", "行進方向"]
   };
 }
 
@@ -64,6 +65,10 @@ export function detectDatasetFormat(rows) {
   const isCombinedCoordinate = ["編號", "車號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
   if (isCombinedCoordinate) {
     return "combined_coordinate";
+  }
+  const isGpsRecordList = ["車號", "定位時間", "定位位置", "地標名稱", "經度", "緯度"].every((name) => has(name));
+  if (isGpsRecordList) {
+    return "gps_record_list";
   }
   const isIrent = ["車號", "GPS時間", "經度", "緯度"].every((name) => has(name));
   if (isIrent) {
@@ -868,6 +873,16 @@ export async function parseWorkbookArrayBuffer(arrayBuffer) {
   for (const name of sheetNames) {
     const sheet = workbook.Sheets[name];
     recoverWorksheetRange(sheet);
+    const matrix = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: "",
+      raw: false,
+      blankrows: false
+    });
+    const gpsRows = parseGpsRecordListMatrix(matrix);
+    if (gpsRows) {
+      return gpsRows;
+    }
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
     if (rows.length > 0) {
       return rows;

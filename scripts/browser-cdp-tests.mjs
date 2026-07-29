@@ -16,16 +16,35 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 const baseUrl = String(args["base-url"] || "http://127.0.0.1:8124/");
 const debugPort = Number(args["debug-port"] || 9223);
-const xlsxPath = path.resolve(String(args.xlsx || "H:/CarIdentify/pegion_Car_Identfy.xlsx"));
-const csvPath = path.resolve(String(args.csv || "H:/CarIdentify/Pegion_Freeway_ETC_Record.csv"));
-const idkcityPath = path.resolve(String(args.idkcity || "H:/CarIdentify/Pegion_IDKCity_Car_Identfy.xlsx"));
+const xlsxPath = args.xlsx ? path.resolve(String(args.xlsx)) : "";
+const csvPath = args.csv ? path.resolve(String(args.csv)) : "";
+const idkcityPath = args.idkcity ? path.resolve(String(args.idkcity)) : "";
 const combinedCoordPath = args["combined-coord"] ? path.resolve(String(args["combined-coord"])) : "";
 const irentPath = args.irent ? path.resolve(String(args.irent)) : "";
 const routineFilterPath = args["routine-filter"] ? path.resolve(String(args["routine-filter"])) : "";
+const gpsRecordDir = args["gps-record-dir"] ? path.resolve(String(args["gps-record-dir"])) : "";
 const timeoutMs = Number(args.timeout || 30000);
 const requestedCase = args.case ? String(args.case) : "";
-const MODULE_VERSION = "20260729c";
+const MODULE_VERSION = "20260729d";
 
+function isSensitiveCaseName(name) {
+  const value = String(name || "");
+  return value.includes("sensitive") || value === "irent-single";
+}
+
+function listGpsRecordPaths(directory) {
+  if (!directory) return [];
+  try {
+    return fs.readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /\.xlsx$/i.test(entry.name))
+      .map((entry) => path.join(directory, entry.name))
+      .sort((a, b) => a.localeCompare(b));
+  } catch (error) {
+    return [];
+  }
+}
+
+const gpsRecordPaths = listGpsRecordPaths(gpsRecordDir);
 const requiredFilesByCase = {
   "xlsx-single": [xlsxPath],
   "csv-single": [csvPath],
@@ -33,15 +52,26 @@ const requiredFilesByCase = {
   "idkcity-single": [idkcityPath],
   "combined-coordinate-sensitive": [combinedCoordPath],
   "irent-single": [irentPath],
-  "routine-filter-table": [routineFilterPath]
+  "routine-filter-table": [routineFilterPath],
+  "gps-record-list-sensitive": gpsRecordPaths
 };
 const requiredFiles = requestedCase
   ? requiredFilesByCase[requestedCase] || []
-  : [xlsxPath, csvPath, idkcityPath].concat(
+  : [
+      ...(xlsxPath ? [xlsxPath] : []),
+      ...(csvPath ? [csvPath] : []),
+      ...(idkcityPath ? [idkcityPath] : [])
+    ].concat(
       combinedCoordPath ? [combinedCoordPath] : [],
       irentPath ? [irentPath] : [],
-      routineFilterPath ? [routineFilterPath] : []
+      routineFilterPath ? [routineFilterPath] : [],
+      gpsRecordPaths
     );
+
+if (requestedCase === "gps-record-list-sensitive" && gpsRecordPaths.length === 0) {
+  console.error("Sensitive GPS workbook test input is unavailable; details redacted.");
+  process.exit(1);
+}
 
 for (const filePath of requiredFiles) {
   if (!filePath) {
@@ -49,7 +79,10 @@ for (const filePath of requiredFiles) {
     process.exit(1);
   }
   if (!fs.existsSync(filePath)) {
-    console.error(`Missing test file: ${filePath}`);
+    const message = !requestedCase || isSensitiveCaseName(requestedCase)
+      ? "Sensitive test input is unavailable; details redacted."
+      : `Missing test file: ${filePath}`;
+    console.error(message);
     process.exit(1);
   }
 }
@@ -490,6 +523,33 @@ async function waitForMapMode(client, selector, expectedMode) {
   }, { timeout: 20000, interval: 250 });
 }
 
+async function waitForSensitiveMapReady(client, selector) {
+  return waitFor(client, "sensitive map to render", async () => {
+    const state = await getMapState(client, selector);
+    return state?.mode === "leaflet" || state?.mode === "empty" ? true : null;
+  }, { timeout: 20000, interval: 250 });
+}
+
+async function setNetworkOffline(client, offline) {
+  await client.send("Network.emulateNetworkConditions", {
+    offline: Boolean(offline),
+    latency: 0,
+    downloadThroughput: offline ? 0 : -1,
+    uploadThroughput: offline ? 0 : -1
+  });
+}
+
+async function navigateToAboutBlankAndWait(client) {
+  await client.send("Page.navigate", { url: "about:blank" });
+  await waitFor(client, "sensitive page teardown", async () => {
+    const ready = await evaluate(
+      client,
+      `location.href === "about:blank" && document.readyState === "complete"`
+    );
+    return ready ? true : null;
+  }, { timeout: 10000, interval: 100 });
+}
+
 function assertCondition(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -615,6 +675,84 @@ async function assertSensitiveAnalysisSuccess(client) {
   }
   assertCondition(status.className.includes("success"), `Sensitive workbook status should be success, got ${status.className}`);
   return status;
+}
+
+async function assertGpsRecordSensitiveState(client) {
+  const valid = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+    const analysis = state.analysis;
+    const track = Array.isArray(analysis?.map?.track) ? analysis.map.track : [];
+    return Boolean(
+      analysis &&
+      track.length >= 2 &&
+      track.every((row) => Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lon))) &&
+      analysis.summary?.cleaning_skipped === false &&
+      Array.isArray(analysis.hourly_distribution) &&
+      analysis.hourly_distribution.length === 24
+    );
+  })`);
+  assertCondition(valid, "Sensitive GPS workbook analysis state is invalid; details redacted.");
+}
+
+async function assertGpsRecordSensitiveViews(client) {
+  await ensureView(client, "map");
+  await waitForSensitiveMapReady(client, "#map");
+
+  await ensureView(client, "parking");
+  await waitForSensitiveMapReady(client, "#parking-map");
+
+  await ensureView(client, "overnight");
+  await waitForSensitiveMapReady(client, "#overnight-map");
+
+  await ensureView(client, "hotspots");
+  await waitForSensitiveMapReady(client, "#hotspots-map");
+
+  await ensureView(client, "routine");
+  await waitForSensitiveMapReady(client, "#routine-map");
+  const routineReady = await waitFor(client, "sensitive routine view to render", async () => {
+    const ready = await evaluate(client, `(() => {
+      const chart = document.querySelector("#routine-hour-chart");
+      const table = document.querySelector("#table-routine");
+      return Boolean(chart && table && chart.querySelectorAll(".hour-column").length === 24);
+    })()`);
+    return ready ? true : null;
+  }, { timeout: 15000, interval: 250 });
+  assertCondition(routineReady, "Sensitive routine view did not render; details redacted.");
+
+  const filterApplied = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+    const track = Array.isArray(state.analysis?.map?.track) ? state.analysis.map.track : [];
+    const populatedHour = track
+      .map((row) => new Date(String(row.time || "").replace(" ", "T")))
+      .find((date) => !Number.isNaN(date.getTime()))
+      ?.getHours();
+    if (!Number.isInteger(populatedHour)) return false;
+    document.querySelector("#routine-filter-reset")?.click();
+    document.querySelector('#routine-hour-grid [data-hour="' + populatedHour + '"]')?.click();
+    document.querySelector("#routine-filter-apply")?.click();
+    return true;
+  })`);
+  assertCondition(filterApplied, "Sensitive routine filter could not be applied; details redacted.");
+
+  const filterValid = await waitFor(client, "sensitive routine filter result", async () => {
+    const valid = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+      const selected = state.routineFilter?.selectedHours || [];
+      const rows = Array.isArray(state.routineFilteredTrack) ? state.routineFilteredTrack : [];
+      if (selected.length !== 1 || rows.length === 0) return false;
+      const targetHour = selected[0];
+      return rows.every((row) => {
+        const date = new Date(String(row.time || "").replace(" ", "T"));
+        return !Number.isNaN(date.getTime()) && date.getHours() === targetHour;
+      });
+    })`);
+    return valid ? true : null;
+  }, { timeout: 15000, interval: 250 });
+  assertCondition(filterValid, "Sensitive routine filter result is invalid; details redacted.");
+
+  await ensureView(client, "anomalies");
+  const anomalyViewReady = await evaluate(client, `Boolean(
+    document.querySelector("#view-anomalies")?.classList.contains("active") &&
+    document.querySelector("#table-teleport")
+  )`);
+  assertCondition(anomalyViewReady, "Sensitive anomaly view did not render; details redacted.");
 }
 
 async function assertCountText(client, selector, expectedText) {
@@ -1255,38 +1393,110 @@ async function testIdkcitySingle(client) {
 }
 
 async function testCombinedCoordinateSensitive(client) {
-  await waitForPageReady(client);
-  await closeFirstOpenOverlayIfPresent(client);
-  await uploadAndAnalyze(client, [combinedCoordPath]);
-  await assertSensitiveAnalysisSuccess(client);
-  await assertAnalysisState(client, { minRaw: 2, minClean: 2, minTrack: 2, cleaningSkipped: false });
+  try {
+    await waitForPageReady(client);
+    await closeFirstOpenOverlayIfPresent(client);
+    await setNetworkOffline(client, true);
+    await uploadAndAnalyze(client, [combinedCoordPath]);
+    await assertSensitiveAnalysisSuccess(client);
+    await assertAnalysisState(client, { minRaw: 2, minClean: 2, minTrack: 2, cleaningSkipped: false });
+  } finally {
+    await navigateToAboutBlankAndWait(client).catch(() => {});
+    const pageIsBlank = await evaluate(client, `location.href === "about:blank"`).catch(() => false);
+    if (pageIsBlank) {
+      await setNetworkOffline(client, false).catch(() => {});
+    }
+  }
+}
+
+async function testGpsRecordListSensitive(client) {
+  const batches = gpsRecordPaths.map((filePath) => [filePath]).concat([gpsRecordPaths]);
+  try {
+    for (let index = 0; index < batches.length; index += 1) {
+      if (index > 0) {
+        await navigateToAboutBlankAndWait(client);
+        await setNetworkOffline(client, false);
+        await navigateToBaseUrl(client);
+        await closeFirstOpenOverlayIfPresent(client);
+      } else {
+        await waitForPageReady(client);
+        await closeFirstOpenOverlayIfPresent(client);
+      }
+
+      await setNetworkOffline(client, true);
+      await uploadAndAnalyze(client, batches[index]);
+      await assertSensitiveAnalysisSuccess(client);
+      await assertGpsRecordSensitiveState(client);
+      await assertGpsRecordSensitiveViews(client);
+    }
+  } finally {
+    await navigateToAboutBlankAndWait(client).catch(() => {});
+    const pageIsBlank = await evaluate(client, `location.href === "about:blank"`).catch(() => false);
+    if (pageIsBlank) {
+      await setNetworkOffline(client, false).catch(() => {});
+    }
+  }
 }
 
 async function testIrentSingle(client) {
-  await waitForPageReady(client);
-  await closeFirstOpenOverlayIfPresent(client);
-  await uploadAndAnalyze(client, [irentPath]);
-  await assertStatusSuccess(client, "RFX5112");
-  await assertAnalysisState(client, { minRaw: 1000, minClean: 1000, minTrack: 1000, coordinateSwappedFixed: true });
+  try {
+    await waitForPageReady(client);
+    await closeFirstOpenOverlayIfPresent(client);
+    await setNetworkOffline(client, true);
+    await uploadAndAnalyze(client, [irentPath]);
+    await assertSensitiveAnalysisSuccess(client);
 
-  const snapshot = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
-    const track = Array.isArray(state.analysis?.map?.track) ? state.analysis.map.track : [];
-    const lat = track.map((row) => Number(row.lat)).filter(Number.isFinite);
-    const lon = track.map((row) => Number(row.lon)).filter(Number.isFinite);
-    return {
-      trackLength: track.length,
-      latMin: Math.min(...lat),
-      latMax: Math.max(...lat),
-      lonMin: Math.min(...lon),
-      lonMax: Math.max(...lon),
-      first: track[0] || null
-    };
-  })`);
-  assertCondition(snapshot.trackLength >= 1000, `Expected iRent track >= 1000, got ${JSON.stringify(snapshot)}`);
-  assertCondition(snapshot.latMin >= 20 && snapshot.latMax <= 30, `iRent latitude should be in Taiwan range ${JSON.stringify(snapshot)}`);
-  assertCondition(snapshot.lonMin >= 110 && snapshot.lonMax <= 130, `iRent longitude should be in Taiwan range ${JSON.stringify(snapshot)}`);
-  assertCondition(Math.abs(Number(snapshot.first?.lat) - 25.18671) < 0.00001, `Unexpected first iRent latitude ${JSON.stringify(snapshot.first)}`);
-  assertCondition(Math.abs(Number(snapshot.first?.lon) - 121.42366) < 0.00001, `Unexpected first iRent longitude ${JSON.stringify(snapshot.first)}`);
+    const valid = await evaluate(client, `(async () => {
+      const { state } = await import('./static/app/shared/state.js?v=${MODULE_VERSION}');
+      const analysis = state.analysis;
+      const track = Array.isArray(analysis?.map?.track) ? analysis.map.track : [];
+      const files = Array.from(document.querySelector('#file-input')?.files || []);
+      if (files.length !== 1 || typeof XLSX === 'undefined') return false;
+
+      const workbook = XLSX.read(await files[0].arrayBuffer(), {
+        type: 'array',
+        cellDates: false
+      });
+      let expectedRows = 0;
+      for (const name of workbook.SheetNames || []) {
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], {
+          defval: '',
+          raw: false
+        });
+        if (rows.length > 0) {
+          expectedRows = rows.length;
+          break;
+        }
+      }
+
+      return Boolean(
+        analysis &&
+        expectedRows >= 2 &&
+        Number(analysis.summary?.raw_records) === expectedRows &&
+        Number(analysis.summary?.clean_records) === expectedRows &&
+        track.length === expectedRows &&
+        track.every((row) => {
+          const lat = Number(row.lat);
+          const lon = Number(row.lon);
+          return Number.isFinite(lat) &&
+            Number.isFinite(lon) &&
+            lat >= 20 &&
+            lat <= 30 &&
+            lon >= 110 &&
+            lon <= 130;
+        }) &&
+        analysis.summary?.coordinate_swapped_fixed === true &&
+        analysis.summary?.cleaning_skipped === false
+      );
+    })()`);
+    assertCondition(valid, "Sensitive iRent workbook state is invalid; details redacted.");
+  } finally {
+    await navigateToAboutBlankAndWait(client).catch(() => {});
+    const pageIsBlank = await evaluate(client, `location.href === "about:blank"`).catch(() => false);
+    if (pageIsBlank) {
+      await setNetworkOffline(client, false).catch(() => {});
+    }
+  }
 }
 
 async function testRoutineFilterTable(client) {
@@ -1317,6 +1527,7 @@ async function main() {
   await client.send("Page.enable");
   await client.send("Runtime.enable");
   await client.send("DOM.enable");
+  await client.send("Network.enable");
   await client.send("Emulation.setDeviceMetricsOverride", {
     width: 1280,
     height: 900,
@@ -1333,12 +1544,18 @@ async function main() {
     ["idkcity-single", testIdkcitySingle],
     ["combined-coordinate-sensitive", testCombinedCoordinateSensitive],
     ["irent-single", testIrentSingle],
-    ["routine-filter-table", testRoutineFilterTable]
+    ["routine-filter-table", testRoutineFilterTable],
+    ["gps-record-list-sensitive", testGpsRecordListSensitive]
   ];
   const availableTests = tests.filter(([name]) => {
+    if (name === "xlsx-single") return Boolean(xlsxPath);
+    if (name === "csv-single") return Boolean(csvPath);
+    if (name === "merged-upload") return Boolean(xlsxPath && csvPath);
+    if (name === "idkcity-single") return Boolean(idkcityPath);
     if (name === "combined-coordinate-sensitive") return Boolean(combinedCoordPath);
     if (name === "irent-single") return Boolean(irentPath);
     if (name === "routine-filter-table") return Boolean(routineFilterPath);
+    if (name === "gps-record-list-sensitive") return gpsRecordPaths.length > 0;
     return true;
   });
   const selectedTests = requestedCase
@@ -1357,7 +1574,7 @@ async function main() {
         console.log(`PASS ${name}`);
       } catch (error) {
         const status = await queryStatus(client).catch(() => ({ text: "<unavailable>", className: "<unavailable>" }));
-        const isSensitiveCase = name.includes("sensitive");
+        const isSensitiveCase = isSensitiveCaseName(name);
         const safeError = isSensitiveCase ? "Sensitive test failed; details redacted" : error.message;
         const safeStatus = isSensitiveCase ? { text: "<redacted>", className: status.className } : status;
         results.push({ name, ok: false, error: safeError, status: safeStatus });

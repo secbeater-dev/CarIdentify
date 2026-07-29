@@ -13,11 +13,11 @@
   OVERNIGHT_MODE_NIGHT,
   PARKING_CLUSTER_RADIUS_M,
   PARKING_SETTINGS_KEY
-} from "./shared/constants.js?v=20260729c";
-import { els } from "./shared/dom.js?v=20260729c";
-import { state } from "./shared/state.js?v=20260729c";
-import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260729c";
-import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260729c";
+} from "./shared/constants.js?v=20260729d";
+import { els } from "./shared/dom.js?v=20260729d";
+import { state } from "./shared/state.js?v=20260729d";
+import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260729d";
+import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260729d";
 import {
   invalidateRoutineMap,
   renderRoutineView,
@@ -25,12 +25,13 @@ import {
   selectAllRoutineDraftHours,
   syncRoutineFilterUi,
   toggleRoutineDraftHour
-} from "./views/routineView.js?v=20260729c";
-import { renderTable } from "./views/tableView.js?v=20260729c";
-import { createParkingView } from "./views/parkingView.js?v=20260729c";
-import { createMainMapView } from "./views/mainMapView.js?v=20260729c";
-import { createAiView } from "./views/aiView.js?v=20260729c";
-import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260729c";
+} from "./views/routineView.js?v=20260729d";
+import { renderTable } from "./views/tableView.js?v=20260729d";
+import { createParkingView } from "./views/parkingView.js?v=20260729d";
+import { createMainMapView } from "./views/mainMapView.js?v=20260729d";
+import { createAiView } from "./views/aiView.js?v=20260729d";
+import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260729d";
+import { parseGpsRecordListMatrix } from "./analysis/workbookFormats.js?v=20260729d";
 
 const THEME_COOKIE_NAME = "caridentify-theme";
 const DISQUS_SHORTNAME = "secbeatercom";
@@ -615,12 +616,12 @@ let disqusLoaded = false;
     return {
       id: ["編號", "id", "serial", "序號"],
       plate: ["車號", "車牌", "plate", "車牌號碼"],
-      timestamp: ["時間", "time", "timestamp", "日期時間", "辨識時間", "偵測日期"],
+      timestamp: ["時間", "定位時間", "time", "timestamp", "日期時間", "辨識時間", "偵測日期"],
       coord: ["經緯度", "座標", "坐標", "coordinates", "coordinate", "latlon", "lonlat"],
       lon: ["經度", "longitude", "lon", "lng", "x"],
       lat: ["緯度", "latitude", "lat", "y"],
-      source: ["來源", "縣市", "source", "city", "行政區", "國道系統", "行進方向", "門架名稱"],
-      note: ["備註", "地址", "路口", "location", "place", "備考", "門架名稱", "國道系統", "行進方向"]
+      source: ["來源", "定位位置", "縣市", "source", "city", "行政區", "國道系統", "行進方向", "門架名稱"],
+      note: ["備註", "地標名稱", "地址", "路口", "location", "place", "備考", "門架名稱", "國道系統", "行進方向"]
     };
   }
 
@@ -654,6 +655,10 @@ let disqusLoaded = false;
     const isCombinedCoordinate = ["編號", "車號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
     if (isCombinedCoordinate) {
       return "combined_coordinate";
+    }
+    const isGpsRecordList = ["車號", "定位時間", "定位位置", "地標名稱", "經度", "緯度"].every((name) => has(name));
+    if (isGpsRecordList) {
+      return "gps_record_list";
     }
     const isIrent = ["車號", "GPS時間", "經度", "緯度"].every((name) => has(name));
     if (isIrent) {
@@ -1625,6 +1630,16 @@ function downloadTextFile(filename, text, mimeType) {
     for (const name of sheetNames) {
       const sheet = workbook.Sheets[name];
       recoverWorksheetRange(sheet);
+      const matrix = XLSX.utils.sheet_to_json(sheet, {
+        header: 1,
+        defval: "",
+        raw: false,
+        blankrows: false
+      });
+      const gpsRows = parseGpsRecordListMatrix(matrix);
+      if (gpsRows) {
+        return gpsRows;
+      }
       const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
       if (rows.length > 0) {
         return rows;

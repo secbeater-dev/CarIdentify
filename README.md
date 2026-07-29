@@ -2,15 +2,16 @@
 
 純前端的車輛辨識分析站點，可直接部署到 GitHub Pages，沒有後端服務。現行入口為 `static/app/main.js`，自訂網域為 `car.secbeater.com`。
 
-## 2026-04-08 現況
+## 2026-07-29 現況
 
 - 舊的 `static/app.js` 已移除，站點已改成原生 ES Modules。
 - 時間分布圖已改為 `00` 到 `23` 的 24 時段單排方塊，可多選、全選、重設，按套用後才更新圖表、地圖與列表。
 - 停車分析、停駐時段分析、熱區分析、時間分布圖的下方列表都可直接點擊定位地圖。
 - 時間分布圖已有獨立點位列表，會跟目前已套用的時段同步。
-- 新增 `Pegion_IDKCity_Car_Identfy.xlsx` 這類 `idkcity_camera` 標頭格式支援。
+- 新增 `idkcity_camera` 標頭格式支援。
+- 新增 `gps_record_list` 格式，可辨識前置說明列、第 4 列表頭與帶動態後綴的 `定位時間` 欄。
 - 新增 `scripts/start-local.ps1`，可一鍵啟動本機靜態站。
-- 已提供 Edge CDP 真實瀏覽器回歸測試，現行基準為 `5/5 passed`。
+- 已提供 Edge CDP 真實瀏覽器回歸測試，依本機可用 fixture 動態選擇案例。
 - 軌跡異常偵測空資料時，會顯示正常中文 `目前無資料`。
 
 ## 目錄結構
@@ -19,6 +20,7 @@
 CarIdentify/
 ├─ index.html
 ├─ README.md
+├─ fullview.md
 ├─ CNAME
 ├─ .nojekyll
 ├─ static/
@@ -34,6 +36,7 @@ CarIdentify/
 │     │  └─ leaflet.js
 │     ├─ analysis/
 │     │  ├─ core.js
+│     │  ├─ workbookFormats.js
 │     │  ├─ timeFilters.js
 │     │  └─ selectors.js
 │     └─ views/
@@ -47,6 +50,7 @@ CarIdentify/
 └─ scripts/
    ├─ start-local.ps1
    ├─ browser-cdp-tests.mjs
+   ├─ core-unit-tests.mjs
    └─ run-browser-tests.ps1
 ```
 
@@ -65,10 +69,16 @@ CarIdentify/
 ### `static/app/analysis/core.js`
 
 - 欄位別名偵測
-- 資料格式辨識：`generic`、`vehicle_recognition`、`idkcity_camera`
+- 資料格式辨識：`generic`、`vehicle_recognition`、`idkcity_camera`、`combined_coordinate`、`irent`、`gps_record_list`
 - 時間解析、車牌正規化、經緯度自動交換修正
 - 傳送門清洗、停留判定、過夜 / 日間分析、熱區聚類
 - 地圖 payload 與 CSV 匯出內容建構
+
+### `static/app/analysis/workbookFormats.js`
+
+- 辨識具有前置說明列的 GPS 記錄工作表
+- 尋找真正表頭並正規化 `定位時間` 的動態括號後綴
+- 從前置資訊擷取車牌，只保留分析所需欄位
 
 ### `static/app/analysis/timeFilters.js`
 
@@ -99,11 +109,10 @@ CarIdentify/
 - 典型門架 / ETC 類格式
 - 會略過第一階段傳送門 / 時間倒退清洗
 - 但後續停留判定仍受正常行駛速度門檻影響
-- 範例：`H:\CarIdentify\Pegion_Freeway_ETC_Record.csv`
 
 ### `idkcity_camera`
 
-- 以 `Pegion_IDKCity_Car_Identfy.xlsx` 的標頭為辨識基準
+- 以固定的 IDKCity 攝影機標頭為辨識基準
 - 需要的核心標頭：
   - `軌跡編號`
   - `攝影機名稱`
@@ -142,10 +151,30 @@ CarIdentify/
 - `經緯度` 可為 `經度, 緯度` 或 `緯度, 經度`，系統會依台灣常見座標範圍判斷順序
 - 這個格式走一般分析流程，不是 `vehicle_recognition`
 
+### `irent`
+
+- 必要標頭：`車號`、`GPS時間`、`經度`、`緯度`
+- 若整份資料經緯度欄位順序顛倒，系統會依台灣常見範圍自動交換
+- 這個格式走一般分析流程
+
+### `gps_record_list`
+
+- 支援工作表前方含說明列、真正表頭不在第一列的 GPS 記錄格式
+- 必要標頭：
+  - `定位時間`
+  - `定位位置`
+  - `地標名稱`
+  - `經度`
+  - `緯度`
+- `定位時間` 可帶有動態的括號筆數後綴，匯入時只保留標準欄名
+- 車牌由表頭前置資訊在瀏覽器記憶體中擷取，不寫入任何檔案或測試輸出
+- `狀態`、`時速(km/h)`、`公里數`、`方向` 不進入標準分析資料列
+- 這個格式走一般清洗流程
+
 ## 功能摘要
 
 - 多檔上傳 `.xlsx` / `.xls` / `.csv`
-- 每個檔案只取第一個非空工作表
+- 每個檔案依工作表順序尋找資料；GPS 記錄格式先定位真正表頭，其餘格式沿用第一個非空工作表
 - 合併資料後，只分析標準化後出現次數最多的車牌
 - 7 個主視圖：
   - 互動地圖
@@ -184,20 +213,20 @@ CarIdentify/
 推薦直接用一鍵腳本：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File H:\CarIdentify\CarIdentify\scripts\start-local.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local.ps1
 ```
 
 可選參數：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File H:\CarIdentify\CarIdentify\scripts\start-local.ps1 -Port 8010
-powershell -NoProfile -ExecutionPolicy Bypass -File H:\CarIdentify\CarIdentify\scripts\start-local.ps1 -NoBrowser
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local.ps1 -Port 8010
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local.ps1 -NoBrowser
 ```
 
 如果只想用最簡單的方式，也可以：
 
 ```powershell
-cd H:\CarIdentify\CarIdentify
+cd <CarIdentify-repo>
 python -m http.server 8000
 ```
 
@@ -221,7 +250,7 @@ python -m http.server 8000
 已提供 Edge CDP 測試腳本，不需安裝 Playwright / Selenium。
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File H:\CarIdentify\CarIdentify\scripts\run-browser-tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.ps1
 ```
 
 目前自動化回歸案例：
@@ -232,8 +261,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File H:\CarIdentify\CarIdentify\s
 - `merged-upload`
 - `idkcity-single`
 - `combined-coordinate-sensitive`（需額外指定私有測試檔路徑，不會輸出資料內容）
+- `irent-single`（敏感模式；分析期間離線，失敗資訊不含 fixture 內容）
+- `routine-filter-table`
+- `gps-record-list-sensitive`（需指定 repo 外的私有資料夾；逐檔與合併測試皆遮蔽內容）
 
-現行基準：`5/5 passed`
+測試案例會依實際指定的 repo 外 fixture 動態執行；沒有 legacy fixture 時仍會執行 `startup-dom`。
 
 若要驗證合併座標欄格式，可額外指定檔案路徑：
 
@@ -241,9 +273,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File H:\CarIdentify\CarIdentify\s
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.ps1 -CombinedCoordPath <path-to-private-xlsx>
 ```
 
+若要驗證 GPS 記錄資料夾格式：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.ps1 -GpsRecordDir <private-data-directory>
+```
+
 ## GitHub Pages
 
-1. 將 `H:\CarIdentify\CarIdentify` 推到 GitHub repo 根目錄
+1. 將 CarIdentify repo 推到 GitHub
 2. 在 repo `Settings -> Pages` 啟用 `Deploy from a branch`
 3. 選擇 `main` 與 `/(root)`
 4. 等待部署完成
@@ -253,4 +291,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.
 - Gemini API Key 會在瀏覽器端使用
 - 建議限制 HTTP referrer 與配額
 - 不要把真實敏感資料直接提交到 repo
+- 真實 `.xlsx`、`.xls`、`.csv`、衍生 fixture、截圖與匯出檔不得加入 Git
+- 敏感 browser test 會在分析期間停用網路，避免資料衍生的位置請求送往第三方服務
 - OSM / OSRM / Gemini 都需要網路，離線時部分功能會退化

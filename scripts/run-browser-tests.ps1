@@ -2,12 +2,13 @@ param(
   [int]$ServerPort = 8124,
   [int]$DebugPort = 9223,
   [string]$BaseUrl = '',
-  [string]$XlsxPath = 'H:\CarIdentify\pegion_Car_Identfy.xlsx',
-  [string]$CsvPath = 'H:\CarIdentify\Pegion_Freeway_ETC_Record.csv',
-  [string]$IdkcityPath = 'H:\CarIdentify\Pegion_IDKCity_Car_Identfy.xlsx',
+  [string]$XlsxPath = '',
+  [string]$CsvPath = '',
+  [string]$IdkcityPath = '',
   [string]$CombinedCoordPath = '',
   [string]$IrentPath = '',
   [string]$RoutineFilterPath = '',
+  [string]$GpsRecordDir = '',
   [string[]]$Cases = @()
 )
 
@@ -82,7 +83,8 @@ function Invoke-EdgeCase(
   [string]$ResolvedIdkcity,
   [string]$ResolvedCombinedCoord,
   [string]$ResolvedIrent,
-  [string]$ResolvedRoutineFilter
+  [string]$ResolvedRoutineFilter,
+  [string]$ResolvedGpsRecordDir
 ) {
   if (Test-Path $ProfileDir) {
     Remove-Item -LiteralPath $ProfileDir -Recurse -Force
@@ -108,11 +110,17 @@ function Invoke-EdgeCase(
       "$repoRoot\scripts\browser-cdp-tests.mjs",
       '--base-url', $BaseUrl,
       '--debug-port', $DebugPort,
-      '--xlsx', $ResolvedXlsx,
-      '--csv', $ResolvedCsv,
-      '--idkcity', $ResolvedIdkcity,
       '--case', $CaseName
     )
+    if (-not [string]::IsNullOrWhiteSpace($ResolvedXlsx)) {
+      $nodeArgs += @('--xlsx', $ResolvedXlsx)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ResolvedCsv)) {
+      $nodeArgs += @('--csv', $ResolvedCsv)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ResolvedIdkcity)) {
+      $nodeArgs += @('--idkcity', $ResolvedIdkcity)
+    }
     if (-not [string]::IsNullOrWhiteSpace($ResolvedCombinedCoord)) {
       $nodeArgs += @('--combined-coord', $ResolvedCombinedCoord)
     }
@@ -121,6 +129,9 @@ function Invoke-EdgeCase(
     }
     if (-not [string]::IsNullOrWhiteSpace($ResolvedRoutineFilter)) {
       $nodeArgs += @('--routine-filter', $ResolvedRoutineFilter)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ResolvedGpsRecordDir)) {
+      $nodeArgs += @('--gps-record-dir', $ResolvedGpsRecordDir)
     }
 
     & $NodePath @nodeArgs 2>&1 | ForEach-Object { Write-Host $_ }
@@ -172,6 +183,7 @@ $resolvedIdkcity = Resolve-OptionalPath $IdkcityPath
 $resolvedCombinedCoord = Resolve-OptionalPath $CombinedCoordPath
 $resolvedIrent = Resolve-OptionalPath $IrentPath
 $resolvedRoutineFilter = Resolve-OptionalPath $RoutineFilterPath
+$resolvedGpsRecordDir = Resolve-OptionalPath $GpsRecordDir
 
 $pythonArgs = if ((Split-Path $pythonPath -Leaf).ToLowerInvariant() -eq 'py.exe') {
   @('-3', '-m', 'http.server', $ServerPort)
@@ -181,7 +193,12 @@ $pythonArgs = if ((Split-Path $pythonPath -Leaf).ToLowerInvariant() -eq 'py.exe'
 
 $pythonProcess = $null
 $standardCases = @('startup-dom', 'xlsx-single', 'csv-single', 'merged-upload', 'idkcity-single')
-$hasStandardFiles = (Test-Path -LiteralPath $XlsxPath) -and (Test-Path -LiteralPath $CsvPath) -and (Test-Path -LiteralPath $IdkcityPath)
+$hasStandardFiles = (-not [string]::IsNullOrWhiteSpace($XlsxPath)) `
+  -and (-not [string]::IsNullOrWhiteSpace($CsvPath)) `
+  -and (-not [string]::IsNullOrWhiteSpace($IdkcityPath)) `
+  -and (Test-Path -LiteralPath $XlsxPath) `
+  -and (Test-Path -LiteralPath $CsvPath) `
+  -and (Test-Path -LiteralPath $IdkcityPath)
 if ($Cases.Count -gt 0) {
   $cases = $Cases
 } elseif ($hasStandardFiles) {
@@ -197,6 +214,9 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedIrent) -and $cases -notcontains '
 }
 if (-not [string]::IsNullOrWhiteSpace($resolvedRoutineFilter) -and $cases -notcontains 'routine-filter-table') {
   $cases += 'routine-filter-table'
+}
+if (-not [string]::IsNullOrWhiteSpace($resolvedGpsRecordDir) -and $cases -notcontains 'gps-record-list-sensitive') {
+  $cases += 'gps-record-list-sensitive'
 }
 $results = @()
 
@@ -216,7 +236,8 @@ try {
       -ResolvedIdkcity $resolvedIdkcity `
       -ResolvedCombinedCoord $resolvedCombinedCoord `
       -ResolvedIrent $resolvedIrent `
-      -ResolvedRoutineFilter $resolvedRoutineFilter
+      -ResolvedRoutineFilter $resolvedRoutineFilter `
+      -ResolvedGpsRecordDir $resolvedGpsRecordDir
     $results += [pscustomobject]@{
       CaseName = $caseName
       ExitCode = $exitCode

@@ -2,7 +2,7 @@
 
 > 最後檢視日期：2026-07-29
 >
-> 架構基準：`eec1cf8`
+> 架構版本：2026-07-29 GPS record list support
 >
 > 本文件是專案的架構與維護基準。進行任何程式修改前必須先完整閱讀；修改完成後必須同步更新受影響的章節、測試案例與版本資訊。
 
@@ -79,6 +79,7 @@ CarIdentify/
 │     │  └─ leaflet.js
 │     ├─ analysis/
 │     │  ├─ core.js
+│     │  ├─ workbookFormats.js
 │     │  ├─ selectors.js
 │     │  └─ timeFilters.js
 │     └─ views/
@@ -115,6 +116,7 @@ CarIdentify/
 ### analysis
 
 - `core.js`：可由 Node 測試匯入的格式偵測、正規化與核心分析實作。
+- `workbookFormats.js`：處理需要先定位真正表頭的工作表格式，回傳最小化的標準欄位物件列。
 - `timeFilters.js`：24 小時選取、摘要、軌跡篩選與每小時計數。
 - `selectors.js`：把完整分析結果轉為各視圖需要的 view model。
 
@@ -154,7 +156,9 @@ CarIdentify/
 3. `parseWorkbookArrayBuffer()` 使用全域 `XLSX`：
    - 修復不完整的 worksheet `!ref` 範圍。
    - 依工作表順序尋找第一個有資料的工作表。
-   - 使用 `sheet_to_json` 轉為物件列。
+   - 先以二維矩陣呼叫格式轉接器。
+   - GPS 記錄格式會定位真正表頭、擷取前置車牌並只保留必要欄位。
+   - 不符合轉接格式時，使用原本的 `sheet_to_json` 物件列 fallback。
 4. `detectDatasetFormat()` 判斷來源格式。
 5. `normalizeRows()` 轉為標準軌跡列。
 6. 多檔的標準列合併後交給 `analyzeRecords()`。
@@ -229,6 +233,26 @@ CarIdentify/
 - `緯度`
 
 若整體經緯度欄位順序顛倒，`smartSwapCoordinates()` 會依中位數自動交換。
+
+### gps_record_list
+
+工作表特徵：
+
+- 表頭前可有標題、空白列與車牌／日期說明。
+- 前 20 列內必須出現 `定位時間`、`定位位置`、`地標名稱`、`經度`、`緯度`。
+- `定位時間` 可有包含筆數的半形或全形括號後綴，轉接時正規化為 `定位時間`。
+- 車牌由表頭前置資訊擷取；找不到時以不含原始內容的通用錯誤停止。
+
+轉接器只回傳：
+
+- `車號`
+- `定位時間`
+- `定位位置`
+- `地標名稱`
+- `經度`
+- `緯度`
+
+其他原始欄位不進入正規化資料列。格式 key 是 `gps_record_list`，使用一般清洗流程。
 
 ## 9. 核心分析流程
 
@@ -314,10 +338,12 @@ localStorage 保存：
 
 `scripts/core-unit-tests.mjs` 使用 `node:assert/strict` 測試：
 
+- GPS 記錄轉接器的表頭定位、動態欄名、車牌擷取與通用錯誤
+- `parseWorkbookArrayBuffer()` 的 GPS 路徑、前 20 列限制、多工作表與舊格式 fallback
 - 合併座標格式
 - 拆分座標與自動交換
 - ETC／門架格式的 skip cleaning
-- iRent 格式
+- 使用合成資料的 iRent 格式
 - `normalizeRows()` 與 `analyzeRecords()`
 
 ### Edge CDP browser tests
@@ -339,8 +365,17 @@ localStorage 保存：
 - `combined-coordinate-sensitive`
 - `irent-single`
 - `routine-filter-table`
+- `gps-record-list-sensitive`
 
-案例所需外部 fixture 不存在時，wrapper 只執行可用案例。名稱含 `sensitive` 的案例會遮蔽失敗訊息與 status text。
+案例所需外部 fixture 不存在時，wrapper 只執行可用案例。名稱含 `sensitive` 的案例與 `irent-single` 都會在分析期間關閉網路，並遮蔽失敗訊息與 status text。
+
+`gps-record-list-sensitive` 接受 repo 外的資料夾：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.ps1 -GpsRecordDir <private-data-directory>
+```
+
+這個案例會逐一測試每份 `.xlsx`，再測試全部檔案合併。分析期間透過 CDP 關閉網路，避免地圖圖磚或其他第三方請求衍生出位置資訊；測試只回傳布林驗證結果與案例 PASS／FAIL。
 
 ## 15. 本機與部署
 
@@ -362,6 +397,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.
 ## 16. 隱私與提交規則
 
 - 真實 Excel、CSV、衍生 fixture、截圖與匯出結果不得加入 repo。
+- `.gitignore` 全域忽略 `*.xlsx`、`*.xls`、`*.csv`。
 - 敏感資料只能由本機測試參數傳入，且不得輸出檔名、路徑、車牌、時間、座標、筆數或表格內容。
 - 自動化測試資料必須完全合成，不可摘錄真實資料列。
 - 私有檔案不得交給外部服務、子代理或遠端測試。
@@ -380,5 +416,5 @@ git ls-files
 
 - 正式入口 `main.js` 與 `analysis/core.js` 存在核心邏輯重複；目前需同步修改並以測試避免偏差。
 - 站點依賴多個 CDN 與第三方服務，離線時地圖或外部功能可能退化。
-- 多檔分析只保留出現次數最多的標準化車牌；新增無車牌格式時必須明確定義分組識別，避免不同車輛被錯誤合併。
+- 多檔分析只保留出現次數最多的標準化車牌；GPS 記錄格式會由各工作表前置資訊擷取車牌以維持正確分組。
 - browser regression 的部分舊 fixture 位於 repo 外，執行環境沒有檔案時不會跑對應案例。
