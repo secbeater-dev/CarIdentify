@@ -1,4 +1,4 @@
-﻿import {
+import {
   DEFAULT_AI_PROMPT,
   DEFAULT_MAP_SETTINGS,
   DEFAULT_NORMAL_DRIVING_SPEED_KMH,
@@ -13,11 +13,11 @@
   OVERNIGHT_MODE_NIGHT,
   PARKING_CLUSTER_RADIUS_M,
   PARKING_SETTINGS_KEY
-} from "./shared/constants.js?v=20260729d";
-import { els } from "./shared/dom.js?v=20260729d";
-import { state } from "./shared/state.js?v=20260729d";
-import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260729d";
-import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260729d";
+} from "./shared/constants.js?v=20260804a";
+import { els } from "./shared/dom.js?v=20260804a";
+import { state } from "./shared/state.js?v=20260804a";
+import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260804a";
+import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260804a";
 import {
   invalidateRoutineMap,
   renderRoutineView,
@@ -25,13 +25,18 @@ import {
   selectAllRoutineDraftHours,
   syncRoutineFilterUi,
   toggleRoutineDraftHour
-} from "./views/routineView.js?v=20260729d";
-import { renderTable } from "./views/tableView.js?v=20260729d";
-import { createParkingView } from "./views/parkingView.js?v=20260729d";
-import { createMainMapView } from "./views/mainMapView.js?v=20260729d";
-import { createAiView } from "./views/aiView.js?v=20260729d";
-import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260729d";
-import { parseGpsRecordListMatrix } from "./analysis/workbookFormats.js?v=20260729d";
+} from "./views/routineView.js?v=20260804a";
+import { renderTable } from "./views/tableView.js?v=20260804a";
+import { createParkingView } from "./views/parkingView.js?v=20260804a";
+import { createMainMapView } from "./views/mainMapView.js?v=20260804a";
+import { createAiView } from "./views/aiView.js?v=20260804a";
+import { initPlateImageViewer } from "./views/plateImageView.js?v=20260804a";
+import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260804a";
+import {
+  extractPlateImageRecordImages,
+  parseGpsRecordListMatrix,
+  parsePlateImageRecordMatrix
+} from "./analysis/workbookFormats.js?v=20260804a";
 
 const THEME_COOKIE_NAME = "caridentify-theme";
 const DISQUS_SHORTNAME = "secbeatercom";
@@ -614,14 +619,15 @@ let disqusLoaded = false;
 
   function columnAliases() {
     return {
-      id: ["編號", "id", "serial", "序號"],
-      plate: ["車號", "車牌", "plate", "車牌號碼"],
+      id: ["編號", "順序", "id", "serial", "序號"],
+      plate: ["車號", "車牌", "plate", "車牌號碼", "牌照號碼"],
+      image: ["牌照圖檔", "image_url", "imageurl"],
       timestamp: ["時間", "定位時間", "time", "timestamp", "日期時間", "辨識時間", "偵測日期"],
       coord: ["經緯度", "座標", "坐標", "coordinates", "coordinate", "latlon", "lonlat"],
       lon: ["經度", "longitude", "lon", "lng", "x"],
       lat: ["緯度", "latitude", "lat", "y"],
       source: ["來源", "定位位置", "縣市", "source", "city", "行政區", "國道系統", "行進方向", "門架名稱"],
-      note: ["備註", "地標名稱", "地址", "路口", "location", "place", "備考", "門架名稱", "國道系統", "行進方向"]
+      note: ["備註", "地標名稱", "行經道路位置", "地址", "路口", "location", "place", "備考", "門架名稱", "國道系統", "行進方向"]
     };
   }
 
@@ -651,6 +657,11 @@ let disqusLoaded = false;
     ].every((name) => has(name));
     if (isIdkcityCamera) {
       return "idkcity_camera";
+    }
+    const isPlateImageRecord = ["順序", "牌照號碼", "牌照圖檔", "日期時間", "行經道路位置", "座標"]
+      .every((name) => has(name));
+    if (isPlateImageRecord) {
+      return "plate_image_record";
     }
     const isCombinedCoordinate = ["編號", "車號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
     if (isCombinedCoordinate) {
@@ -1005,6 +1016,7 @@ let disqusLoaded = false;
 
       const sourceRaw = selected.source ? row[selected.source] : "";
       const noteRaw = selected.note ? row[selected.note] : "";
+      const imageRaw = selected.image ? String(row[selected.image] ?? "").trim() : "";
       const source = String(sourceRaw ?? "").trim() || "未提供";
       const note = String(noteRaw ?? "").trim();
 
@@ -1017,7 +1029,8 @@ let disqusLoaded = false;
         lon,
         lat,
         source,
-        note
+        note,
+        ...(selected.image ? { image_url: imageRaw.startsWith("blob:") ? imageRaw : "" } : {})
       };
     });
 
@@ -1336,7 +1349,8 @@ let disqusLoaded = false;
         time: formatDateTime(row.timestamp),
         area: row.source || "未提供",
         address: row.note || row.source || "未提供",
-        timestamp_ms: row.timestamp.getTime()
+        timestamp_ms: row.timestamp.getTime(),
+        ...(Object.prototype.hasOwnProperty.call(row, "image_url") ? { image_url: row.image_url || "" } : {})
       })),
       stays: stays.map((s) => ({
         start_id: s.start_id,
@@ -1584,6 +1598,32 @@ function downloadTextFile(filename, text, mimeType) {
     setStatus("尚無可匯出資料，請先完成分析。", "error");
   }
 
+  function collectWorkbookImageUrls(rows) {
+    return Array.from(new Set(
+      (Array.isArray(rows) ? rows : [])
+        .map((row) => String(row?.image_url || row?.["牌照圖檔"] || "").trim())
+        .filter((url) => url.startsWith("blob:"))
+    ));
+  }
+
+  function revokeWorkbookImageUrls(urls) {
+    for (const url of new Set(Array.isArray(urls) ? urls : [])) {
+      if (String(url).startsWith("blob:")) {
+        URL.revokeObjectURL(url);
+      }
+    }
+  }
+
+  function replaceWorkbookImageUrls(nextUrls) {
+    const previousUrls = state.workbookImageUrls.slice();
+    if (els.plateImageDialog?.open) {
+      els.plateImageDialog.close();
+    }
+    els.plateImageDialogImage?.removeAttribute("src");
+    state.workbookImageUrls = Array.from(new Set(nextUrls));
+    revokeWorkbookImageUrls(previousUrls);
+  }
+
   async function parseWorkbookArrayBuffer(arrayBuffer) {
     if (typeof XLSX === "undefined") {
       throw new Error("XLSX parser is not available.");
@@ -1636,6 +1676,14 @@ function downloadTextFile(filename, text, mimeType) {
         raw: false,
         blankrows: false
       });
+      const plateImageRecord = parsePlateImageRecordMatrix(matrix);
+      if (plateImageRecord) {
+        const imageUrlByRow = await extractPlateImageRecordImages(arrayBuffer, name, plateImageRecord.rowIndexes);
+        return plateImageRecord.rows.map((row, index) => ({
+          ...row,
+          牌照圖檔: imageUrlByRow.get(plateImageRecord.rowIndexes[index]) || ""
+        }));
+      }
       const gpsRows = parseGpsRecordListMatrix(matrix);
       if (gpsRows) {
         return gpsRows;
@@ -1670,6 +1718,7 @@ function downloadTextFile(filename, text, mimeType) {
       return;
     }
 
+    const pendingImageUrls = [];
     try {
       setStatus(`正在載入 ${files.length} 個檔案...`, "");
       const mergedNormalizedRows = [];
@@ -1678,6 +1727,7 @@ function downloadTextFile(filename, text, mimeType) {
         try {
           const buffer = await file.arrayBuffer();
           const rows = await parseWorkbookArrayBuffer(buffer);
+          pendingImageUrls.push(...collectWorkbookImageUrls(rows));
           datasetFormats.push(detectDatasetFormat(rows));
           const normalizedRows = normalizeRows(rows);
           mergedNormalizedRows.push(...normalizedRows);
@@ -1691,7 +1741,9 @@ function downloadTextFile(filename, text, mimeType) {
       const sourceLabel = files.length === 1 ? files[0].name : `${files.length} 個檔案`;
       const skipCleaning = datasetFormats.some((format) => format === "vehicle_recognition");
       await analyzeWithRows(mergedNormalizedRows, sourceLabel, { rowsNormalized: true, skipCleaning });
+      replaceWorkbookImageUrls(pendingImageUrls);
     } catch (error) {
+      revokeWorkbookImageUrls(pendingImageUrls);
       setStatus(`分析失敗：${error.message}`, "error");
     }
   }
@@ -2000,6 +2052,10 @@ function setActiveView(viewKey) {
       invalidateHotspotsMap();
       invalidateRoutineMap();
     });
+    window.addEventListener("beforeunload", () => {
+      revokeWorkbookImageUrls(state.workbookImageUrls);
+      state.workbookImageUrls = [];
+    });
   }
 
   function init() {
@@ -2019,6 +2075,7 @@ function setActiveView(viewKey) {
     state.routineFilterDraft = normalizeRoutineFilter(state.routineFilter);
     syncRoutineFilterUi();
     configureSidebarYoutubeEmbed();
+    initPlateImageViewer();
     bindEvents();
     ensureDefaultAiPrompt();
     initMapIfNeeded();

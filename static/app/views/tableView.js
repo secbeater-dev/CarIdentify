@@ -1,4 +1,4 @@
-﻿import { escapeHtml } from "../shared/utils.js?v=20260729d";
+import { escapeHtml } from "../shared/utils.js?v=20260804a";
 
 function clearTableRowHandler(container) {
   if (!container?.__tableRowClickHandler) return;
@@ -30,7 +30,10 @@ export function renderTable(container, rows, columns, options = {}) {
       const tds = columns
         .map((col) => {
           const raw = col.format ? col.format(row[col.key], row) : row[col.key];
-          return `<td>${escapeHtml(raw ?? "")}</td>`;
+          const content = typeof col.render === "function"
+            ? col.render(raw, row)
+            : escapeHtml(raw ?? "");
+          return `<td>${content}</td>`;
         })
         .join("");
       const rowClass = [

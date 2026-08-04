@@ -1,4 +1,4 @@
-﻿import {
+import {
   DEFAULT_MAP_SETTINGS,
   DEFAULT_NORMAL_DRIVING_SPEED_KMH,
   DEFAULT_PARKING_SETTINGS,
@@ -7,7 +7,7 @@
   MAX_NORMAL_DRIVING_SPEED_KMH,
   MIN_NORMAL_DRIVING_SPEED_KMH,
   PARKING_SETTINGS_KEY
-} from "./constants.js?v=20260729d";
+} from "./constants.js?v=20260804a";
 
 export function pad2(value) {
   return String(value).padStart(2, "0");

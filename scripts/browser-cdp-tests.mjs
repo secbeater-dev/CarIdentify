@@ -1,4 +1,4 @@
-﻿import fs from "node:fs";
+import fs from "node:fs";
 import path from "node:path";
 
 function parseArgs(argv) {
@@ -23,9 +23,10 @@ const combinedCoordPath = args["combined-coord"] ? path.resolve(String(args["com
 const irentPath = args.irent ? path.resolve(String(args.irent)) : "";
 const routineFilterPath = args["routine-filter"] ? path.resolve(String(args["routine-filter"])) : "";
 const gpsRecordDir = args["gps-record-dir"] ? path.resolve(String(args["gps-record-dir"])) : "";
+const plateImagePath = args["plate-image"] ? path.resolve(String(args["plate-image"])) : "";
 const timeoutMs = Number(args.timeout || 30000);
 const requestedCase = args.case ? String(args.case) : "";
-const MODULE_VERSION = "20260729d";
+const MODULE_VERSION = "20260804a";
 
 function isSensitiveCaseName(name) {
   const value = String(name || "");
@@ -53,7 +54,8 @@ const requiredFilesByCase = {
   "combined-coordinate-sensitive": [combinedCoordPath],
   "irent-single": [irentPath],
   "routine-filter-table": [routineFilterPath],
-  "gps-record-list-sensitive": gpsRecordPaths
+  "gps-record-list-sensitive": gpsRecordPaths,
+  "plate-image-record-sensitive": [plateImagePath]
 };
 const requiredFiles = requestedCase
   ? requiredFilesByCase[requestedCase] || []
@@ -65,7 +67,8 @@ const requiredFiles = requestedCase
       combinedCoordPath ? [combinedCoordPath] : [],
       irentPath ? [irentPath] : [],
       routineFilterPath ? [routineFilterPath] : [],
-      gpsRecordPaths
+      gpsRecordPaths,
+      plateImagePath ? [plateImagePath] : []
     );
 
 if (requestedCase === "gps-record-list-sensitive" && gpsRecordPaths.length === 0) {
@@ -243,16 +246,29 @@ async function waitForPageReady(client) {
     const info = await evaluate(client, `(() => ({
       ready: document.readyState === "complete",
       hasFileInput: Boolean(document.querySelector("#file-input")),
-      appReady: window.__CARIDENTIFY_APP_READY__ === true
+      appReady: window.__CARIDENTIFY_APP_READY__ === true || document.documentElement.dataset.appReady === "true"
     }))()`);
     return info?.ready && info?.hasFileInput && info?.appReady ? info : null;
   }, { interval: 150, timeout: 20000 });
 }
 
 async function navigateToBaseUrl(client) {
-  await client.send("Page.navigate", { url: baseUrl });
-  await sleep(500);
-  await waitForPageReady(client);
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt === 0) {
+      await client.send("Page.navigate", { url: baseUrl });
+    } else {
+      await client.send("Page.reload", { ignoreCache: true });
+    }
+    await sleep(500);
+    try {
+      await waitForPageReady(client);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Timed out waiting for application startup.");
 }
 
 async function closeFirstOpenOverlayIfPresent(client) {
@@ -1438,6 +1454,338 @@ async function testGpsRecordListSensitive(client) {
   }
 }
 
+async function testPlateImageOoxmlSynthetic(client) {
+  await waitForPageReady(client);
+  await closeFirstOpenOverlayIfPresent(client);
+  const hasImageDialog = await evaluate(client, `Boolean(
+    document.querySelector('#plate-image-dialog') &&
+    document.querySelector('#plate-image-dialog-image') &&
+    document.querySelector('#plate-image-dialog-close')
+  )`);
+  assertCondition(hasImageDialog, "Plate image dialog is missing.");
+
+  const valid = await evaluate(client, `(async () => {
+    if (typeof fflate === 'undefined') return false;
+    const encode = (value) => new TextEncoder().encode(value);
+    const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), (char) => char.charCodeAt(0));
+    const workbookXml = '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Synthetic" sheetId="1" r:id="rId1"/></sheets></workbook>';
+    const workbookRels = '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>';
+    const sheetXml = '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetData/><drawing r:id="rId1"/></worksheet>';
+    const sheetRels = '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>';
+    const drawingXml = '<?xml version="1.0" encoding="UTF-8"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><xdr:oneCellAnchor><xdr:from><xdr:col>2</xdr:col><xdr:row>2</xdr:row></xdr:from><xdr:pic><xdr:blipFill><a:blip r:embed="rId1"/></xdr:blipFill></xdr:pic></xdr:oneCellAnchor><xdr:oneCellAnchor><xdr:from><xdr:col>2</xdr:col><xdr:row>4</xdr:row></xdr:from><xdr:pic><xdr:blipFill><a:blip r:embed="rId2"/></xdr:blipFill></xdr:pic></xdr:oneCellAnchor></xdr:wsDr>';
+    const drawingRels = '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image2.png"/></Relationships>';
+    const baseFiles = {
+      'xl/workbook.xml': encode(workbookXml),
+      'xl/_rels/workbook.xml.rels': encode(workbookRels),
+      'xl/worksheets/sheet1.xml': encode(sheetXml),
+      'xl/worksheets/_rels/sheet1.xml.rels': encode(sheetRels),
+      'xl/drawings/drawing1.xml': encode(drawingXml),
+      'xl/drawings/_rels/drawing1.xml.rels': encode(drawingRels),
+      'xl/media/image1.png': png,
+      'xl/media/image2.png': png
+    };
+    const toArrayBuffer = (bytes) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const { extractPlateImageRecordImages } = await import('./static/app/analysis/workbookFormats.js?v=${MODULE_VERSION}');
+    const objectUrls = [];
+    try {
+      const packageBuffer = toArrayBuffer(fflate.zipSync(baseFiles));
+      const images = await extractPlateImageRecordImages(packageBuffer, 'Synthetic', [2, 4]);
+      if (!(images instanceof Map) || images.size !== 2) return false;
+      const first = images.get(2);
+      const second = images.get(4);
+      if (!String(first).startsWith('blob:') || !String(second).startsWith('blob:')) return false;
+      objectUrls.push(first, second);
+      const imageLoaded = await new Promise((resolve) => {
+        const image = new Image();
+        image.onload = () => resolve(image.naturalWidth === 1 && image.naturalHeight === 1);
+        image.onerror = () => resolve(false);
+        image.src = first;
+      });
+      if (!imageLoaded) return false;
+
+      const [{ renderTable }, imageView] = await Promise.all([
+        import('./static/app/views/tableView.js?v=${MODULE_VERSION}'),
+        import('./static/app/views/plateImageView.js?v=${MODULE_VERSION}')
+      ]);
+      const tableHost = document.createElement('div');
+      document.body.appendChild(tableHost);
+      renderTable(tableHost, [{ image_url: first }, { image_url: '' }], [
+        { key: 'image_url', label: '牌照圖片', render: imageView.renderPlateImageThumbnailHtml }
+      ]);
+      const thumbnail = tableHost.querySelector('.plate-image-thumbnail');
+      const thumbnailImage = thumbnail?.querySelector('img');
+      const missingImage = tableHost.querySelector('.plate-image-missing');
+      if (!thumbnail || thumbnailImage?.alt !== '牌照圖片' || !String(thumbnailImage?.src || '').startsWith('blob:') || missingImage?.textContent !== '無圖片') {
+        tableHost.remove();
+        return false;
+      }
+
+      imageView.initPlateImageViewer();
+      thumbnail.click();
+      const dialog = document.querySelector('#plate-image-dialog');
+      const dialogImage = document.querySelector('#plate-image-dialog-image');
+      if (!dialog?.open || dialogImage?.alt !== '牌照圖片' || !String(dialogImage?.src || '').startsWith('blob:')) {
+        tableHost.remove();
+        return false;
+      }
+      document.querySelector('#plate-image-dialog-close')?.click();
+      if (dialog.open) {
+        tableHost.remove();
+        return false;
+      }
+      thumbnail.click();
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      if (dialog.open) {
+        tableHost.remove();
+        return false;
+      }
+      tableHost.remove();
+
+      let badMimeRejected = false;
+      try {
+        const badFiles = { ...baseFiles, 'xl/media/image2.png': encode('not-an-image') };
+        await extractPlateImageRecordImages(toArrayBuffer(fflate.zipSync(badFiles)), 'Synthetic', [2, 4]);
+      } catch (error) {
+        badMimeRejected = true;
+      }
+      if (!badMimeRejected) return false;
+
+      let oversizeRejected = false;
+      try {
+        const oversized = new Uint8Array(5 * 1024 * 1024 + 1);
+        oversized.set(png.subarray(0, Math.min(png.length, oversized.length)));
+        const largeFiles = { ...baseFiles, 'xl/media/image1.png': oversized };
+        await extractPlateImageRecordImages(toArrayBuffer(fflate.zipSync(largeFiles)), 'Synthetic', [2]);
+      } catch (error) {
+        oversizeRejected = true;
+      }
+      if (!oversizeRejected) return false;
+
+      let countRejected = false;
+      try {
+        await extractPlateImageRecordImages(packageBuffer, 'Synthetic', Array.from({ length: 5001 }, (_, index) => index));
+      } catch (error) {
+        countRejected = true;
+      }
+      if (!countRejected) return false;
+
+      URL.revokeObjectURL(first);
+      objectUrls.splice(objectUrls.indexOf(first), 1);
+      let revoked = false;
+      try {
+        await fetch(first);
+      } catch (error) {
+        revoked = true;
+      }
+      return revoked;
+    } finally {
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    }
+  })()`);
+  assertCondition(valid, "Synthetic plate image OOXML extraction failed.");
+}
+
+async function assertPlateImageRecordSensitiveState(client) {
+  const valid = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+    const analysis = state.analysis;
+    const track = Array.isArray(analysis?.map?.track) ? analysis.map.track : [];
+    const imageUrls = Array.isArray(state.workbookImageUrls) ? state.workbookImageUrls : [];
+    return Boolean(
+      analysis &&
+      track.length >= 2 &&
+      track.every((row) => {
+        const lat = Number(row.lat);
+        const lon = Number(row.lon);
+        const time = new Date(String(row.time || '').replace(' ', 'T'));
+        return Number.isFinite(lat) && Number.isFinite(lon) && !Number.isNaN(time.getTime()) &&
+          Object.prototype.hasOwnProperty.call(row, 'image_url') &&
+          (!row.image_url || String(row.image_url).startsWith('blob:'));
+      }) &&
+      track.some((row) => String(row.image_url || '').startsWith('blob:')) &&
+      imageUrls.length > 0 &&
+      imageUrls.every((url) => String(url).startsWith('blob:')) &&
+      analysis.summary?.cleaning_skipped === false &&
+      Array.isArray(analysis.hourly_distribution) &&
+      analysis.hourly_distribution.length === 24 &&
+      !JSON.stringify(analysis.exports || {}).includes('blob:')
+    );
+  })`);
+  assertCondition(valid, "Sensitive plate image workbook state is invalid; details redacted.");
+}
+
+async function assertPlateImageRecordSensitiveViews(client) {
+  await ensureView(client, "map");
+  await waitForSensitiveMapReady(client, "#map");
+  const mainMapReady = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+    const layer = state.layers?.trackDots?.getLayers?.().find((item) => typeof item.openPopup === 'function');
+    layer?.openPopup();
+    const currentImage = document.querySelector('#map-current-info .plate-image-thumbnail img');
+    const popupImage = document.querySelector('#map .leaflet-popup .plate-image-thumbnail img');
+    return Boolean(
+      currentImage?.alt === '牌照圖片' && String(currentImage.src || '').startsWith('blob:') &&
+      popupImage?.alt === '牌照圖片' && String(popupImage.src || '').startsWith('blob:')
+    );
+  })`);
+  assertCondition(mainMapReady, "Sensitive main map image view is invalid; details redacted.");
+
+  await ensureView(client, "parking");
+  await waitForSensitiveMapReady(client, "#parking-map");
+  await ensureView(client, "overnight");
+  await waitForSensitiveMapReady(client, "#overnight-map");
+  await ensureView(client, "hotspots");
+  await waitForSensitiveMapReady(client, "#hotspots-map");
+  await ensureView(client, "routine");
+  await waitForSensitiveMapReady(client, "#routine-map");
+
+  const routineReady = await waitFor(client, "sensitive plate image routine view", async () => {
+    const ready = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+      const rows = Array.isArray(state.routineFilteredTrack) ? state.routineFilteredTrack : [];
+      const tableRows = Array.from(document.querySelectorAll('#table-routine tbody tr'));
+      const images = Array.from(document.querySelectorAll('#table-routine .plate-image-thumbnail img'));
+      return Boolean(
+        rows.length > 0 && tableRows.length === rows.length && images.length > 0 &&
+        images.every((image) => image.alt === '牌照圖片' && String(image.src || '').startsWith('blob:'))
+      );
+    })`);
+    return ready ? true : null;
+  }, { timeout: 15000, interval: 250 });
+  assertCondition(routineReady, "Sensitive routine image view is invalid; details redacted.");
+  const routineMediaReady = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(async ({ state }) => {
+    const image = document.querySelector('#table-routine .plate-image-thumbnail img');
+    if (!image) return false;
+    image.loading = 'eager';
+    try {
+      await image.decode();
+    } catch (error) {
+      return false;
+    }
+    const layer = state.routineLayers?.points?.getLayers?.().find((item) => typeof item.openPopup === 'function');
+    layer?.openPopup();
+    await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    const popupImage = document.querySelector('#routine-map .leaflet-popup .plate-image-thumbnail img');
+    if (!popupImage || popupImage.alt !== '牌照圖片' || !String(popupImage.src || '').startsWith('blob:')) return false;
+    popupImage.loading = 'eager';
+    try {
+      await popupImage.decode();
+    } catch (error) {
+      return false;
+    }
+    return image.naturalWidth > 0 && popupImage.naturalWidth > 0;
+  })`);
+  assertCondition(routineMediaReady, "Sensitive routine image media is invalid; details redacted.");
+
+  const dialogValid = await evaluate(client, `(() => {
+    const thumbnail = document.querySelector('#table-routine .plate-image-thumbnail');
+    thumbnail?.click();
+    const dialog = document.querySelector('#plate-image-dialog');
+    const image = document.querySelector('#plate-image-dialog-image');
+    const opened = Boolean(dialog?.open && image?.alt === '牌照圖片' && String(image.src || '').startsWith('blob:'));
+    document.querySelector('#plate-image-dialog-close')?.click();
+    const closedByButton = Boolean(dialog && !dialog.open);
+    thumbnail?.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    return opened && closedByButton && Boolean(dialog && !dialog.open);
+  })()`);
+  assertCondition(dialogValid, "Sensitive plate image dialog is invalid; details redacted.");
+
+  const filterApplied = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+    const track = Array.isArray(state.analysis?.map?.track) ? state.analysis.map.track : [];
+    const populatedHour = track
+      .map((row) => new Date(String(row.time || '').replace(' ', 'T')))
+      .find((date) => !Number.isNaN(date.getTime()))
+      ?.getHours();
+    if (!Number.isInteger(populatedHour)) return false;
+    document.querySelector('#routine-filter-reset')?.click();
+    document.querySelector('#routine-hour-grid [data-hour="' + populatedHour + '"]')?.click();
+    document.querySelector('#routine-filter-apply')?.click();
+    return true;
+  })`);
+  assertCondition(filterApplied, "Sensitive routine filter could not be applied; details redacted.");
+
+  const filterValid = await waitFor(client, "sensitive plate image routine filter result", async () => {
+    const valid = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+      const selected = state.routineFilter?.selectedHours || [];
+      const rows = Array.isArray(state.routineFilteredTrack) ? state.routineFilteredTrack : [];
+      const tableRows = document.querySelectorAll('#table-routine tbody tr').length;
+      const mapMarkers = state.routineLayers?.points?.getLayers?.().length || 0;
+      if (selected.length !== 1 || rows.length === 0) return false;
+      const targetHour = selected[0];
+      return tableRows === rows.length && mapMarkers === rows.length && rows.every((row) => {
+        const date = new Date(String(row.time || '').replace(' ', 'T'));
+        return !Number.isNaN(date.getTime()) && date.getHours() === targetHour;
+      });
+    })`);
+    return valid ? true : null;
+  }, { timeout: 15000, interval: 250 });
+  assertCondition(filterValid, "Sensitive routine filter result is invalid; details redacted.");
+
+  await ensureView(client, "anomalies");
+  const anomalyReady = await evaluate(client, `Boolean(
+    document.querySelector('#view-anomalies')?.classList.contains('active') &&
+    document.querySelector('#table-teleport')
+  )`);
+  assertCondition(anomalyReady, "Sensitive anomaly view is invalid; details redacted.");
+}
+
+async function testPlateImageRecordSensitive(client) {
+  try {
+    await waitForPageReady(client);
+    await closeFirstOpenOverlayIfPresent(client);
+    await setNetworkOffline(client, true);
+    await uploadAndAnalyze(client, [plateImagePath]);
+    await assertSensitiveAnalysisSuccess(client);
+    await assertPlateImageRecordSensitiveState(client);
+    await assertPlateImageRecordSensitiveViews(client);
+
+    const replacementPrepared = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+      window.__plateImagePreviousUrls = state.workbookImageUrls.slice();
+      return window.__plateImagePreviousUrls.length > 0;
+    })`);
+    assertCondition(replacementPrepared, "Sensitive image URL replacement setup failed; details redacted.");
+    await uploadAndAnalyze(client, [plateImagePath]);
+    await assertSensitiveAnalysisSuccess(client);
+    await assertPlateImageRecordSensitiveState(client);
+    const replacementValid = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(async ({ state }) => {
+      const previous = Array.isArray(window.__plateImagePreviousUrls) ? window.__plateImagePreviousUrls : [];
+      const current = Array.isArray(state.workbookImageUrls) ? state.workbookImageUrls : [];
+      const previousRevoked = await Promise.all(previous.map(async (url) => {
+        try {
+          await fetch(url);
+          return false;
+        } catch (error) {
+          return true;
+        }
+      }));
+      delete window.__plateImagePreviousUrls;
+      return previous.length > 0 && current.length > 0 &&
+        current.every((url) => String(url).startsWith('blob:') && !previous.includes(url)) &&
+        previousRevoked.every(Boolean);
+    })`);
+    assertCondition(replacementValid, "Sensitive image URL replacement is invalid; details redacted.");
+
+    const teardownValid = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(async ({ state }) => {
+      const urls = state.workbookImageUrls.slice();
+      window.dispatchEvent(new Event('beforeunload'));
+      const revoked = await Promise.all(urls.map(async (url) => {
+        try {
+          await fetch(url);
+          return false;
+        } catch (error) {
+          return true;
+        }
+      }));
+      return urls.length > 0 && state.workbookImageUrls.length === 0 && revoked.every(Boolean);
+    })`);
+    assertCondition(teardownValid, "Sensitive image URL teardown is invalid; details redacted.");
+  } finally {
+    await navigateToAboutBlankAndWait(client).catch(() => {});
+    const pageIsBlank = await evaluate(client, `location.href === "about:blank"`).catch(() => false);
+    if (pageIsBlank) {
+      await setNetworkOffline(client, false).catch(() => {});
+    }
+  }
+}
+
 async function testIrentSingle(client) {
   try {
     await waitForPageReady(client);
@@ -1545,7 +1893,9 @@ async function main() {
     ["combined-coordinate-sensitive", testCombinedCoordinateSensitive],
     ["irent-single", testIrentSingle],
     ["routine-filter-table", testRoutineFilterTable],
-    ["gps-record-list-sensitive", testGpsRecordListSensitive]
+    ["gps-record-list-sensitive", testGpsRecordListSensitive],
+    ["plate-image-ooxml-synthetic", testPlateImageOoxmlSynthetic],
+    ["plate-image-record-sensitive", testPlateImageRecordSensitive]
   ];
   const availableTests = tests.filter(([name]) => {
     if (name === "xlsx-single") return Boolean(xlsxPath);
@@ -1556,6 +1906,7 @@ async function main() {
     if (name === "irent-single") return Boolean(irentPath);
     if (name === "routine-filter-table") return Boolean(routineFilterPath);
     if (name === "gps-record-list-sensitive") return gpsRecordPaths.length > 0;
+    if (name === "plate-image-record-sensitive") return Boolean(plateImagePath);
     return true;
   });
   const selectedTests = requestedCase

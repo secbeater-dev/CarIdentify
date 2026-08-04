@@ -9,6 +9,7 @@ param(
   [string]$IrentPath = '',
   [string]$RoutineFilterPath = '',
   [string]$GpsRecordDir = '',
+  [string]$PlateImagePath = '',
   [string[]]$Cases = @()
 )
 
@@ -84,7 +85,8 @@ function Invoke-EdgeCase(
   [string]$ResolvedCombinedCoord,
   [string]$ResolvedIrent,
   [string]$ResolvedRoutineFilter,
-  [string]$ResolvedGpsRecordDir
+  [string]$ResolvedGpsRecordDir,
+  [string]$ResolvedPlateImage
 ) {
   if (Test-Path $ProfileDir) {
     Remove-Item -LiteralPath $ProfileDir -Recurse -Force
@@ -132,6 +134,9 @@ function Invoke-EdgeCase(
     }
     if (-not [string]::IsNullOrWhiteSpace($ResolvedGpsRecordDir)) {
       $nodeArgs += @('--gps-record-dir', $ResolvedGpsRecordDir)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ResolvedPlateImage)) {
+      $nodeArgs += @('--plate-image', $ResolvedPlateImage)
     }
 
     & $NodePath @nodeArgs 2>&1 | ForEach-Object { Write-Host $_ }
@@ -184,6 +189,7 @@ $resolvedCombinedCoord = Resolve-OptionalPath $CombinedCoordPath
 $resolvedIrent = Resolve-OptionalPath $IrentPath
 $resolvedRoutineFilter = Resolve-OptionalPath $RoutineFilterPath
 $resolvedGpsRecordDir = Resolve-OptionalPath $GpsRecordDir
+$resolvedPlateImage = Resolve-OptionalPath $PlateImagePath
 
 $pythonArgs = if ((Split-Path $pythonPath -Leaf).ToLowerInvariant() -eq 'py.exe') {
   @('-3', '-m', 'http.server', $ServerPort)
@@ -204,7 +210,7 @@ if ($Cases.Count -gt 0) {
 } elseif ($hasStandardFiles) {
   $cases = $standardCases
 } else {
-  $cases = @('startup-dom')
+  $cases = @('startup-dom', 'plate-image-ooxml-synthetic')
 }
 if (-not [string]::IsNullOrWhiteSpace($resolvedCombinedCoord) -and $cases -notcontains 'combined-coordinate-sensitive') {
   $cases += 'combined-coordinate-sensitive'
@@ -217,6 +223,9 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedRoutineFilter) -and $cases -notco
 }
 if (-not [string]::IsNullOrWhiteSpace($resolvedGpsRecordDir) -and $cases -notcontains 'gps-record-list-sensitive') {
   $cases += 'gps-record-list-sensitive'
+}
+if (-not [string]::IsNullOrWhiteSpace($resolvedPlateImage) -and $cases -notcontains 'plate-image-record-sensitive') {
+  $cases += 'plate-image-record-sensitive'
 }
 $results = @()
 
@@ -237,7 +246,8 @@ try {
       -ResolvedCombinedCoord $resolvedCombinedCoord `
       -ResolvedIrent $resolvedIrent `
       -ResolvedRoutineFilter $resolvedRoutineFilter `
-      -ResolvedGpsRecordDir $resolvedGpsRecordDir
+      -ResolvedGpsRecordDir $resolvedGpsRecordDir `
+      -ResolvedPlateImage $resolvedPlateImage
     $results += [pscustomobject]@{
       CaseName = $caseName
       ExitCode = $exitCode

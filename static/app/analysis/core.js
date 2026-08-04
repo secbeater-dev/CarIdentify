@@ -1,7 +1,7 @@
 import {
   DEFAULT_NORMAL_DRIVING_SPEED_KMH,
   HOME
-} from "../shared/constants.js?v=20260729d";
+} from "../shared/constants.js?v=20260804a";
 import {
   formatDateTime,
   formatDuration,
@@ -12,8 +12,12 @@ import {
   overlapNightHours,
   parseRocDateTime,
   toNumber
-} from "../shared/utils.js?v=20260729d";
-import { parseGpsRecordListMatrix } from "./workbookFormats.js?v=20260729d";
+} from "../shared/utils.js?v=20260804a";
+import {
+  extractPlateImageRecordImages,
+  parseGpsRecordListMatrix,
+  parsePlateImageRecordMatrix
+} from "./workbookFormats.js?v=20260804a";
 
 export function normalizeHeaderKey(value) {
   return String(value ?? "")
@@ -24,14 +28,15 @@ export function normalizeHeaderKey(value) {
 
 export function columnAliases() {
   return {
-    id: ["編號", "id", "serial", "序號"],
-    plate: ["車號", "車牌", "plate", "車牌號碼"],
+    id: ["編號", "順序", "id", "serial", "序號"],
+    plate: ["車號", "車牌", "plate", "車牌號碼", "牌照號碼"],
+    image: ["牌照圖檔", "image_url", "imageurl"],
     timestamp: ["時間", "定位時間", "time", "timestamp", "日期時間", "辨識時間", "偵測日期"],
     coord: ["經緯度", "座標", "坐標", "coordinates", "coordinate", "latlon", "lonlat"],
     lon: ["經度", "longitude", "lon", "lng", "x"],
     lat: ["緯度", "latitude", "lat", "y"],
     source: ["來源", "定位位置", "縣市", "source", "city", "行政區", "國道系統", "行進方向", "門架名稱"],
-    note: ["備註", "地標名稱", "地址", "路口", "location", "place", "備考", "門架名稱", "國道系統", "行進方向"]
+    note: ["備註", "地標名稱", "行經道路位置", "地址", "路口", "location", "place", "備考", "門架名稱", "國道系統", "行進方向"]
   };
 }
 
@@ -61,6 +66,11 @@ export function detectDatasetFormat(rows) {
   ].every((name) => has(name));
   if (isIdkcityCamera) {
     return "idkcity_camera";
+  }
+  const isPlateImageRecord = ["順序", "牌照號碼", "牌照圖檔", "日期時間", "行經道路位置", "座標"]
+    .every((name) => has(name));
+  if (isPlateImageRecord) {
+    return "plate_image_record";
   }
   const isCombinedCoordinate = ["編號", "車號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
   if (isCombinedCoordinate) {
@@ -415,6 +425,7 @@ export function normalizeRows(rawRows) {
 
     const sourceRaw = selected.source ? row[selected.source] : "";
     const noteRaw = selected.note ? row[selected.note] : "";
+    const imageRaw = selected.image ? String(row[selected.image] ?? "").trim() : "";
     const source = String(sourceRaw ?? "").trim() || "未提供";
     const note = String(noteRaw ?? "").trim();
 
@@ -427,7 +438,8 @@ export function normalizeRows(rawRows) {
       lon,
       lat,
       source,
-      note
+      note,
+      ...(selected.image ? { image_url: imageRaw.startsWith("blob:") ? imageRaw : "" } : {})
     };
   });
 
@@ -746,7 +758,8 @@ export function analyzeRecords(rawRows, options = {}) {
       time: formatDateTime(row.timestamp),
       area: row.source || "未提供",
       address: row.note || row.source || "未提供",
-      timestamp_ms: row.timestamp.getTime()
+      timestamp_ms: row.timestamp.getTime(),
+      ...(Object.prototype.hasOwnProperty.call(row, "image_url") ? { image_url: row.image_url || "" } : {})
     })),
     stays: stays.map((s) => ({
       start_id: s.start_id,
@@ -879,6 +892,14 @@ export async function parseWorkbookArrayBuffer(arrayBuffer) {
       raw: false,
       blankrows: false
     });
+    const plateImageRecord = parsePlateImageRecordMatrix(matrix);
+    if (plateImageRecord) {
+      const imageUrlByRow = await extractPlateImageRecordImages(arrayBuffer, name, plateImageRecord.rowIndexes);
+      return plateImageRecord.rows.map((row, index) => ({
+        ...row,
+        牌照圖檔: imageUrlByRow.get(plateImageRecord.rowIndexes[index]) || ""
+      }));
+    }
     const gpsRows = parseGpsRecordListMatrix(matrix);
     if (gpsRows) {
       return gpsRows;

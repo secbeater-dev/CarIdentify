@@ -1,3 +1,5 @@
+import { renderPlateImageThumbnailHtml } from "./plateImageView.js?v=20260804a";
+
 export function createMainMapView(deps) {
   const {
     els,
@@ -46,6 +48,18 @@ export function createMainMapView(deps) {
     return parseRocDateTime(trackPoint.time);
   }
 
+  function hasPlateImageField(point) {
+    return Boolean(point && Object.prototype.hasOwnProperty.call(point, "image_url"));
+  }
+
+  function renderTrackPointPopup(point) {
+    const location = point.address || point.area || "未提供";
+    const imageHtml = hasPlateImageField(point)
+      ? `<div class="map-popup-plate-image">${renderPlateImageThumbnailHtml(point.image_url)}</div>`
+      : "";
+    return `<b>${escapeHtml(point.time || "")}</b><br>${escapeHtml(location)}${imageHtml}`;
+  }
+
   function updateMapCurrentInfo(point) {
     if (!els.mapCurrentInfo) return;
     if (!point) {
@@ -58,7 +72,12 @@ export function createMainMapView(deps) {
     const timeText = dt ? `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}:${pad2(dt.getSeconds())}` : "-";
     const locationText = `${point.area || "未提供"} / ${point.address || "未提供"}`;
     const coordText = `${Number(point.lat).toFixed(6)}, ${Number(point.lon).toFixed(6)}`;
-    els.mapCurrentInfo.textContent = `日期 ${dateText}｜時間 ${timeText}｜位置 ${locationText}｜座標 ${coordText}｜編號 ${point.id}`;
+    const detailText = `日期 ${dateText}｜時間 ${timeText}｜位置 ${locationText}｜座標 ${coordText}｜編號 ${point.id}`;
+    if (!hasPlateImageField(point)) {
+      els.mapCurrentInfo.textContent = detailText;
+      return;
+    }
+    els.mapCurrentInfo.innerHTML = `<span>${escapeHtml(detailText)}</span><span class="map-current-plate-image">${renderPlateImageThumbnailHtml(point.image_url)}</span>`;
   }
 
   function setTeleportVisible(visible) {
@@ -165,7 +184,7 @@ export function createMainMapView(deps) {
         fillOpacity: isCurrent ? 0.72 : 0.45,
         weight: isCurrent ? 1.9 : 1.3
       });
-      marker.bindPopup(`<b>${escapeHtml(p.time)}</b><br>${escapeHtml(p.address || p.area || "未提供")}`);
+      marker.bindPopup(renderTrackPointPopup(p));
 
       if (mapSettings.showPointDetails) {
         const detailHtml = `<span class="map-point-detail" style="background:rgba(0,0,0,${mapSettings.textOpacity / 100});font-size:${mapSettings.textSize}px;">${escapeHtml(`${idx + 1}. ${p.time}`)}</span>`;
@@ -485,7 +504,7 @@ function setupTimelineControls(track) {
 
     if (state.currentMarker) {
       state.currentMarker.setLatLng([point.lat, point.lon]);
-      state.currentMarker.bindPopup(`<b>${escapeHtml(point.time)}</b><br>${escapeHtml(point.address || point.area || "未提供")}`);
+      state.currentMarker.bindPopup(renderTrackPointPopup(point));
     }
 
     if (state.mapSettings.focusWindowOnly) {

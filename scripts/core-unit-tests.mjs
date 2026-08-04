@@ -20,6 +20,96 @@ assert.equal(
   "function",
   "GPS record list workbook adapter should be available"
 );
+assert.equal(
+  typeof workbookFormats.parsePlateImageRecordMatrix,
+  "function",
+  "Plate image record workbook adapter should be available"
+);
+assert.equal(
+  typeof workbookFormats.extractPlateImageRecordImages,
+  "function",
+  "Plate image record image extractor should be available"
+);
+
+const plateImageRecordMatrix = [
+  ["合成牌照辨識報表"],
+  [
+    "順序",
+    "牌照號碼",
+    "牌照圖檔",
+    "日期時間",
+    "建置期別/埠",
+    "行經道路位置",
+    "分局",
+    "派出所",
+    "座標"
+  ],
+  ["7", "SYN-9001", "", "115/08/04 06:10:00", "ignored-a", "synthetic-road-a", "ignored-b", "ignored-c", "25.040000, 121.520000"],
+  [],
+  ["8", "SYN-9001", "", "115/08/04 06:40:00", "ignored-d", "synthetic-road-b", "ignored-e", "ignored-f", "(121.521000 / 25.041000)"]
+];
+
+const plateImageAdapted = workbookFormats.parsePlateImageRecordMatrix(plateImageRecordMatrix);
+assert.deepEqual(plateImageAdapted.rowIndexes, [2, 4]);
+assert.equal(plateImageAdapted.rows.length, 2);
+assert.deepEqual(Object.keys(plateImageAdapted.rows[0]), [
+  "順序",
+  "牌照號碼",
+  "牌照圖檔",
+  "日期時間",
+  "行經道路位置",
+  "座標"
+]);
+assert.equal(plateImageAdapted.rows[0]["順序"], "7");
+assert.equal(plateImageAdapted.rows[0]["行經道路位置"], "synthetic-road-a");
+assert.equal("建置期別/埠" in plateImageAdapted.rows[0], false);
+assert.equal("分局" in plateImageAdapted.rows[0], false);
+assert.equal("派出所" in plateImageAdapted.rows[0], false);
+assert.equal(
+  workbookFormats.parsePlateImageRecordMatrix([["not", "a", "plate", "image", "record"]]),
+  null
+);
+
+const beyondPlateImageHeaderScanLimit = Array.from({ length: 20 }, (_, index) => [index]);
+beyondPlateImageHeaderScanLimit.push(
+  ["順序", "牌照號碼", "牌照圖檔", "日期時間", "行經道路位置", "座標"],
+  ["1", "SYN-9001", "", "115/08/04 06:10:00", "synthetic-road", "25.04, 121.52"]
+);
+assert.equal(
+  workbookFormats.parsePlateImageRecordMatrix(beyondPlateImageHeaderScanLimit),
+  null,
+  "Plate image headers after the first 20 rows should not be adapted"
+);
+
+assert.equal(detectDatasetFormat(plateImageAdapted.rows), "plate_image_record");
+const plateImageColumns = detectColumns(plateImageAdapted.rows);
+assert.equal(plateImageColumns.id, "順序");
+assert.equal(plateImageColumns.plate, "牌照號碼");
+assert.equal(plateImageColumns.image, "牌照圖檔");
+assert.equal(plateImageColumns.timestamp, "日期時間");
+assert.equal(plateImageColumns.note, "行經道路位置");
+assert.equal(plateImageColumns.coord, "座標");
+assert.equal(plateImageColumns.source, undefined);
+
+plateImageAdapted.rows[0]["牌照圖檔"] = "blob:synthetic-image-a";
+plateImageAdapted.rows[1]["牌照圖檔"] = "blob:synthetic-image-b";
+const plateImageNormalized = normalizeRows(plateImageAdapted.rows);
+assert.equal(plateImageNormalized.length, 2);
+assert.equal(plateImageNormalized[0].id, 7);
+assert.equal(plateImageNormalized[0].plate_norm, "SYN9001");
+assert.equal(plateImageNormalized[0].timestamp.getFullYear(), 2026);
+assert.equal(plateImageNormalized[0].source, "未提供");
+assert.equal(plateImageNormalized[0].note, "synthetic-road-a");
+assert.equal(plateImageNormalized[0].lon, 121.52);
+assert.equal(plateImageNormalized[0].lat, 25.04);
+assert.equal(plateImageNormalized[0].image_url, "blob:synthetic-image-a");
+
+const plateImageResult = analyzeRecords(plateImageAdapted.rows, { normalDrivingSpeedKmh: 40 });
+assert.equal(plateImageResult.summary.cleaning_skipped, false);
+assert.equal(plateImageResult.map.track.length, 2);
+assert.equal(plateImageResult.map.track[0].image_url, "blob:synthetic-image-a");
+assert.equal(plateImageResult.map.track[1].image_url, "blob:synthetic-image-b");
+assert.equal(JSON.stringify(plateImageResult.exports).includes("blob:synthetic-image"), false);
 
 const gpsRecordMatrix = [
   ["記錄列表"],

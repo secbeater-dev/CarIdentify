@@ -1,16 +1,17 @@
-﻿import { els } from "../shared/dom.js?v=20260729d";
-import { DEFAULT_ROUTINE_FILTER, MAP_DEFAULT_VIEW, ROUTINE_HOUR_OPTIONS } from "../shared/constants.js?v=20260729d";
-import { state } from "../shared/state.js?v=20260729d";
-import { createBaseMap, ensureMapHost, fitMapToLatLngs, renderEmptyMapHost } from "../shared/leaflet.js?v=20260729d";
-import { buildRoutineViewModel } from "../analysis/selectors.js?v=20260729d";
-import { normalizeMapSettings, pad2 } from "../shared/utils.js?v=20260729d";
+import { els } from "../shared/dom.js?v=20260804a";
+import { DEFAULT_ROUTINE_FILTER, MAP_DEFAULT_VIEW, ROUTINE_HOUR_OPTIONS } from "../shared/constants.js?v=20260804a";
+import { state } from "../shared/state.js?v=20260804a";
+import { createBaseMap, ensureMapHost, fitMapToLatLngs, renderEmptyMapHost } from "../shared/leaflet.js?v=20260804a";
+import { buildRoutineViewModel } from "../analysis/selectors.js?v=20260804a";
+import { escapeHtml, normalizeMapSettings, pad2 } from "../shared/utils.js?v=20260804a";
 import {
   areRoutineFiltersEqual,
   formatRoutineSelectedHours,
   getRoutineFilterLabel,
   normalizeRoutineFilter
-} from "../analysis/timeFilters.js?v=20260729d";
-import { renderTable } from "./tableView.js?v=20260729d";
+} from "../analysis/timeFilters.js?v=20260804a";
+import { renderTable } from "./tableView.js?v=20260804a";
+import { renderPlateImageThumbnailHtml } from "./plateImageView.js?v=20260804a";
 
 let routineMarkerByKey = new Map();
 let activeRoutineKey = "";
@@ -43,6 +44,10 @@ function buildRoutinePointKey(point) {
     point?.lat ?? "",
     point?.lon ?? ""
   ].join("|");
+}
+
+function hasPlateImageField(point) {
+  return Boolean(point && Object.prototype.hasOwnProperty.call(point, "image_url"));
 }
 
 function clearRoutineSelection(options = {}) {
@@ -159,10 +164,13 @@ function renderRoutineMap(track) {
       fillOpacity: 0.5,
       weight: 1.3
     });
+    const imageHtml = hasPlateImageField(point)
+      ? `<div class="map-popup-plate-image">${renderPlateImageThumbnailHtml(point.image_url)}</div>`
+      : "";
     marker.bindPopup(
-      `<b>${point.time}</b><br>${point.address || point.area || "未提供"}<br>${Number(point.lat).toFixed(6)}, ${Number(
-        point.lon
-      ).toFixed(6)}<br>編號 ${point.id}`
+      `<b>${escapeHtml(point.time || "")}</b><br>${escapeHtml(point.address || point.area || "未提供")}<br>${escapeHtml(
+        `${Number(point.lat).toFixed(6)}, ${Number(point.lon).toFixed(6)}`
+      )}<br>編號 ${escapeHtml(point.id)}${imageHtml}`
     );
     marker.__baseRadius = mapSettings.pointRadius;
     marker.__baseColor = mapSettings.pointColor;
@@ -178,17 +186,25 @@ function renderRoutineMap(track) {
 }
 
 function renderRoutineTable(track) {
+  const columns = [
+    { key: "time", label: "時間" },
+    { key: "area", label: "行政區" },
+    { key: "address", label: "地址" },
+    { key: "lon", label: "經度", format: formatRoutineCoord },
+    { key: "lat", label: "緯度", format: formatRoutineCoord },
+    { key: "id", label: "編號" }
+  ];
+  if (track.some(hasPlateImageField)) {
+    columns.splice(1, 0, {
+      key: "image_url",
+      label: "牌照圖片",
+      render: renderPlateImageThumbnailHtml
+    });
+  }
   renderTable(
     els.tableRoutine,
     track,
-    [
-      { key: "time", label: "時間" },
-      { key: "area", label: "行政區" },
-      { key: "address", label: "地址" },
-      { key: "lon", label: "經度", format: formatRoutineCoord },
-      { key: "lat", label: "緯度", format: formatRoutineCoord },
-      { key: "id", label: "編號" }
-    ],
+    columns,
     {
       getRowKey: (row) => buildRoutinePointKey(row),
       activeRowKey: activeRoutineKey,
