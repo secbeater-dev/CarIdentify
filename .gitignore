@@ -3,3 +3,6 @@
 *.xlsx
 *.xls
 *.csv
+/fullview.md
+/update.md
+/supported-formats.md
