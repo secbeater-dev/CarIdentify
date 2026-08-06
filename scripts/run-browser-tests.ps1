@@ -10,6 +10,7 @@ param(
   [string]$RoutineFilterPath = '',
   [string]$GpsRecordDir = '',
   [string]$PlateImagePath = '',
+  [string]$PlateTextPath = '',
   [string[]]$Cases = @()
 )
 
@@ -86,7 +87,8 @@ function Invoke-EdgeCase(
   [string]$ResolvedIrent,
   [string]$ResolvedRoutineFilter,
   [string]$ResolvedGpsRecordDir,
-  [string]$ResolvedPlateImage
+  [string]$ResolvedPlateImage,
+  [string]$ResolvedPlateText
 ) {
   if (Test-Path $ProfileDir) {
     Remove-Item -LiteralPath $ProfileDir -Recurse -Force
@@ -137,6 +139,9 @@ function Invoke-EdgeCase(
     }
     if (-not [string]::IsNullOrWhiteSpace($ResolvedPlateImage)) {
       $nodeArgs += @('--plate-image', $ResolvedPlateImage)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ResolvedPlateText)) {
+      $nodeArgs += @('--plate-text', $ResolvedPlateText)
     }
 
     & $NodePath @nodeArgs 2>&1 | ForEach-Object { Write-Host $_ }
@@ -190,6 +195,7 @@ $resolvedIrent = Resolve-OptionalPath $IrentPath
 $resolvedRoutineFilter = Resolve-OptionalPath $RoutineFilterPath
 $resolvedGpsRecordDir = Resolve-OptionalPath $GpsRecordDir
 $resolvedPlateImage = Resolve-OptionalPath $PlateImagePath
+$resolvedPlateText = Resolve-OptionalPath $PlateTextPath
 
 $pythonArgs = if ((Split-Path $pythonPath -Leaf).ToLowerInvariant() -eq 'py.exe') {
   @('-3', '-m', 'http.server', $ServerPort)
@@ -227,6 +233,9 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedGpsRecordDir) -and $cases -notcon
 if (-not [string]::IsNullOrWhiteSpace($resolvedPlateImage) -and $cases -notcontains 'plate-image-record-sensitive') {
   $cases += 'plate-image-record-sensitive'
 }
+if (-not [string]::IsNullOrWhiteSpace($resolvedPlateText) -and $cases -notcontains 'plate-text-record-sensitive') {
+  $cases += 'plate-text-record-sensitive'
+}
 $results = @()
 
 try {
@@ -247,7 +256,8 @@ try {
       -ResolvedIrent $resolvedIrent `
       -ResolvedRoutineFilter $resolvedRoutineFilter `
       -ResolvedGpsRecordDir $resolvedGpsRecordDir `
-      -ResolvedPlateImage $resolvedPlateImage
+      -ResolvedPlateImage $resolvedPlateImage `
+      -ResolvedPlateText $resolvedPlateText
     $results += [pscustomobject]@{
       CaseName = $caseName
       ExitCode = $exitCode

@@ -2,8 +2,9 @@
 
 純前端的車輛辨識分析站點，可直接部署到 GitHub Pages，沒有後端服務。現行入口為 `static/app/main.js`，自訂網域為 `car.secbeater.com`。
 
-## 2026-08-04 現況
+## 2026-08-06 現況
 
+- 新增 `plate_text_record` 格式，可辨識前置說明列、前 20 列內表頭、民國日期與合併座標，不啟用圖片解析或圖片 UI。
 - 新增 `plate_image_record` 格式，可辨識前置說明列、第 2 列表頭、民國日期、合併座標與 Excel 內嵌牌照圖片。
 - 牌照圖片只以 `blob:` URL 保留在目前瀏覽器分頁的記憶體，重新分析或離開頁面時會回收。
 - 主地圖目前點位／popup 與時間分布圖 popup／列表可顯示牌照縮圖，點擊後以原生 dialog 放大。
@@ -78,7 +79,7 @@ CarIdentify/
 ### `static/app/analysis/core.js`
 
 - 欄位別名偵測
-- 資料格式辨識：`generic`、`vehicle_recognition`、`idkcity_camera`、`combined_coordinate`、`irent`、`gps_record_list`、`plate_image_record`
+- 資料格式辨識：`generic`、`vehicle_recognition`、`idkcity_camera`、`combined_coordinate`、`irent`、`gps_record_list`、`plate_image_record`、`plate_text_record`
 - 時間解析、車牌正規化、經緯度自動交換修正
 - 傳送門清洗、停留判定、過夜 / 日間分析、熱區聚類
 - 地圖 payload 與 CSV 匯出內容建構
@@ -90,6 +91,7 @@ CarIdentify/
 - 從前置資訊擷取車牌，只保留分析所需欄位
 - 辨識牌照圖片記錄工作表並回傳原始工作表列索引
 - 解析 OOXML drawing relationships 與 row anchors，建立本機圖片 `blob:` URL
+- 辨識無圖片的牌照文字記錄工作表，只保留分析必要欄位
 
 ### `static/app/analysis/timeFilters.js`
 
@@ -206,10 +208,30 @@ CarIdentify/
 - 圖片只在目前瀏覽器分頁記憶體中處理，不納入 CSV、AI context 或 localStorage
 - 缺少個別圖片時顯示 `無圖片`；這個格式走一般清洗流程
 
+### `plate_text_record`
+
+- 支援工作表前方含說明列、表頭位於前 20 列內的牌照文字記錄格式
+- 必要標頭：
+  - `順序`
+  - `牌照號碼`
+  - `日期時間`
+  - `行經道路位置`
+  - `座標`
+- 正規化對應：
+  - `id = 順序`
+  - `plate = 牌照號碼`
+  - `timestamp = 日期時間`
+  - `note = 行經道路位置`
+  - `lon/lat = 座標`
+  - `source = 未提供`
+- `建置期別/埠`、`分局`、`派出所` 不進入標準分析資料列或畫面
+- 不建立 `image_url`、不啟用 OOXML 圖片解析，也不顯示圖片欄或缺圖狀態
+- 這個格式走一般清洗流程
+
 ## 功能摘要
 
 - 多檔上傳 `.xlsx` / `.xls` / `.csv`
-- 每個檔案依工作表順序尋找資料；GPS 與牌照圖片記錄格式先定位真正表頭，其餘格式沿用第一個非空工作表
+- 每個檔案依工作表順序尋找資料；GPS、牌照圖片與牌照文字記錄格式先定位真正表頭，其餘格式沿用第一個非空工作表
 - 合併資料後，只分析標準化後出現次數最多的車牌
 - 7 個主視圖：
   - 互動地圖
@@ -301,6 +323,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.
 - `gps-record-list-sensitive`（需指定 repo 外的私有資料夾；逐檔與合併測試皆遮蔽內容）
 - `plate-image-ooxml-synthetic`（完全合成的記憶體內 OOXML、圖片限制與 blob URL 測試）
 - `plate-image-record-sensitive`（需指定 repo 外的私有檔案；全程離線且只輸出 PASS／FAIL）
+- `plate-text-record-sensitive`（需指定 repo 外的私有檔案；全程離線且只輸出 PASS／FAIL）
 
 測試案例會依實際指定的 repo 外 fixture 動態執行；沒有 legacy fixture 時仍會執行 `startup-dom`。
 
@@ -320,6 +343,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.ps1 -PlateImagePath <private-workbook-path>
+```
+
+若要驗證牌照文字記錄格式：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.ps1 -PlateTextPath <private-workbook-path>
 ```
 
 ## GitHub Pages

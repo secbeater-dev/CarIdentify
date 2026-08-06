@@ -1,4 +1,4 @@
-import { renderPlateImageThumbnailHtml } from "./plateImageView.js?v=20260804a";
+import { renderPlateImageThumbnailHtml } from "./plateImageView.js?v=20260806a";
 
 export function createMainMapView(deps) {
   const {

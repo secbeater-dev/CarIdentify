@@ -1,7 +1,7 @@
 import {
   DEFAULT_NORMAL_DRIVING_SPEED_KMH,
   HOME
-} from "../shared/constants.js?v=20260804a";
+} from "../shared/constants.js?v=20260806a";
 import {
   formatDateTime,
   formatDuration,
@@ -12,12 +12,13 @@ import {
   overlapNightHours,
   parseRocDateTime,
   toNumber
-} from "../shared/utils.js?v=20260804a";
+} from "../shared/utils.js?v=20260806a";
 import {
   extractPlateImageRecordImages,
   parseGpsRecordListMatrix,
-  parsePlateImageRecordMatrix
-} from "./workbookFormats.js?v=20260804a";
+  parsePlateImageRecordMatrix,
+  parsePlateTextRecordMatrix
+} from "./workbookFormats.js?v=20260806a";
 
 export function normalizeHeaderKey(value) {
   return String(value ?? "")
@@ -71,6 +72,11 @@ export function detectDatasetFormat(rows) {
     .every((name) => has(name));
   if (isPlateImageRecord) {
     return "plate_image_record";
+  }
+  const isPlateTextRecord = !has("牌照圖檔")
+    && ["順序", "牌照號碼", "日期時間", "行經道路位置", "座標"].every((name) => has(name));
+  if (isPlateTextRecord) {
+    return "plate_text_record";
   }
   const isCombinedCoordinate = ["編號", "車號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
   if (isCombinedCoordinate) {
@@ -899,6 +905,10 @@ export async function parseWorkbookArrayBuffer(arrayBuffer) {
         ...row,
         牌照圖檔: imageUrlByRow.get(plateImageRecord.rowIndexes[index]) || ""
       }));
+    }
+    const plateTextRows = parsePlateTextRecordMatrix(matrix);
+    if (plateTextRows) {
+      return plateTextRows;
     }
     const gpsRows = parseGpsRecordListMatrix(matrix);
     if (gpsRows) {

@@ -24,9 +24,10 @@ const irentPath = args.irent ? path.resolve(String(args.irent)) : "";
 const routineFilterPath = args["routine-filter"] ? path.resolve(String(args["routine-filter"])) : "";
 const gpsRecordDir = args["gps-record-dir"] ? path.resolve(String(args["gps-record-dir"])) : "";
 const plateImagePath = args["plate-image"] ? path.resolve(String(args["plate-image"])) : "";
+const plateTextPath = args["plate-text"] ? path.resolve(String(args["plate-text"])) : "";
 const timeoutMs = Number(args.timeout || 30000);
 const requestedCase = args.case ? String(args.case) : "";
-const MODULE_VERSION = "20260804a";
+const MODULE_VERSION = "20260806a";
 
 function isSensitiveCaseName(name) {
   const value = String(name || "");
@@ -55,7 +56,8 @@ const requiredFilesByCase = {
   "irent-single": [irentPath],
   "routine-filter-table": [routineFilterPath],
   "gps-record-list-sensitive": gpsRecordPaths,
-  "plate-image-record-sensitive": [plateImagePath]
+  "plate-image-record-sensitive": [plateImagePath],
+  "plate-text-record-sensitive": [plateTextPath]
 };
 const requiredFiles = requestedCase
   ? requiredFilesByCase[requestedCase] || []
@@ -68,7 +70,8 @@ const requiredFiles = requestedCase
       irentPath ? [irentPath] : [],
       routineFilterPath ? [routineFilterPath] : [],
       gpsRecordPaths,
-      plateImagePath ? [plateImagePath] : []
+      plateImagePath ? [plateImagePath] : [],
+      plateTextPath ? [plateTextPath] : []
     );
 
 if (requestedCase === "gps-record-list-sensitive" && gpsRecordPaths.length === 0) {
@@ -1454,6 +1457,79 @@ async function testGpsRecordListSensitive(client) {
   }
 }
 
+async function assertPlateTextRecordSensitiveState(client) {
+  const valid = await evaluate(client, `(async () => {
+    const [{ state }, core] = await Promise.all([
+      import('./static/app/shared/state.js?v=${MODULE_VERSION}'),
+      import('./static/app/analysis/core.js?v=${MODULE_VERSION}')
+    ]);
+    const analysis = state.analysis;
+    const track = Array.isArray(analysis?.map?.track) ? analysis.map.track : [];
+    const file = document.querySelector('#file-input')?.files?.[0];
+    if (!file) return false;
+    const adaptedRows = await core.parseWorkbookArrayBuffer(await file.arrayBuffer());
+    const allowedKeys = new Set(['順序', '牌照號碼', '日期時間', '行經道路位置', '座標']);
+    return Boolean(
+      core.detectDatasetFormat(adaptedRows) === 'plate_text_record' &&
+      adaptedRows.length > 0 &&
+      adaptedRows.every((row) => Object.keys(row).every((key) => allowedKeys.has(key))) &&
+      analysis &&
+      track.length >= 2 &&
+      track.every((row) => {
+        const time = new Date(String(row.time || '').replace(' ', 'T'));
+        return Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lon)) &&
+          !Number.isNaN(time.getTime()) &&
+          !Object.prototype.hasOwnProperty.call(row, 'image_url');
+      }) &&
+      analysis.summary?.cleaning_skipped === false &&
+      Array.isArray(analysis.hourly_distribution) &&
+      analysis.hourly_distribution.length === 24 &&
+      Array.isArray(state.workbookImageUrls) &&
+      state.workbookImageUrls.length === 0 &&
+      !JSON.stringify(analysis.exports || {}).includes('blob:')
+    );
+  })()`);
+  assertCondition(valid, "Sensitive plate text workbook state is invalid; details redacted.");
+}
+
+async function assertPlateTextRecordSensitiveViews(client) {
+  await assertGpsRecordSensitiveViews(client);
+  await ensureView(client, "routine");
+  const routineValid = await waitFor(client, "sensitive plate text routine consistency", async () => {
+    const valid = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+      const rows = Array.isArray(state.routineFilteredTrack) ? state.routineFilteredTrack : [];
+      const tableRows = document.querySelectorAll('#table-routine tbody tr').length;
+      const mapMarkers = state.routineLayers?.points?.getLayers?.().length || 0;
+      return rows.length > 0 && tableRows === rows.length && mapMarkers === rows.length;
+    })`);
+    return valid ? true : null;
+  }, { timeout: 15000, interval: 250 });
+  assertCondition(routineValid, "Sensitive plate text routine view is inconsistent; details redacted.");
+
+  const hasUnexpectedImageUi = await evaluate(client, `Boolean(
+    document.querySelector('.plate-image-thumbnail, .plate-image-missing')
+  )`);
+  assertCondition(!hasUnexpectedImageUi, "Sensitive plate text workbook rendered image UI; details redacted.");
+}
+
+async function testPlateTextRecordSensitive(client) {
+  try {
+    await waitForPageReady(client);
+    await closeFirstOpenOverlayIfPresent(client);
+    await setNetworkOffline(client, true);
+    await uploadAndAnalyze(client, [plateTextPath]);
+    await assertSensitiveAnalysisSuccess(client);
+    await assertPlateTextRecordSensitiveState(client);
+    await assertPlateTextRecordSensitiveViews(client);
+  } finally {
+    await navigateToAboutBlankAndWait(client).catch(() => {});
+    const pageIsBlank = await evaluate(client, `location.href === "about:blank"`).catch(() => false);
+    if (pageIsBlank) {
+      await setNetworkOffline(client, false).catch(() => {});
+    }
+  }
+}
+
 async function testPlateImageOoxmlSynthetic(client) {
   await waitForPageReady(client);
   await closeFirstOpenOverlayIfPresent(client);
@@ -1895,7 +1971,8 @@ async function main() {
     ["routine-filter-table", testRoutineFilterTable],
     ["gps-record-list-sensitive", testGpsRecordListSensitive],
     ["plate-image-ooxml-synthetic", testPlateImageOoxmlSynthetic],
-    ["plate-image-record-sensitive", testPlateImageRecordSensitive]
+    ["plate-image-record-sensitive", testPlateImageRecordSensitive],
+    ["plate-text-record-sensitive", testPlateTextRecordSensitive]
   ];
   const availableTests = tests.filter(([name]) => {
     if (name === "xlsx-single") return Boolean(xlsxPath);
@@ -1907,6 +1984,7 @@ async function main() {
     if (name === "routine-filter-table") return Boolean(routineFilterPath);
     if (name === "gps-record-list-sensitive") return gpsRecordPaths.length > 0;
     if (name === "plate-image-record-sensitive") return Boolean(plateImagePath);
+    if (name === "plate-text-record-sensitive") return Boolean(plateTextPath);
     return true;
   });
   const selectedTests = requestedCase

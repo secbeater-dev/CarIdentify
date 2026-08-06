@@ -26,6 +26,11 @@ assert.equal(
   "Plate image record workbook adapter should be available"
 );
 assert.equal(
+  typeof workbookFormats.parsePlateTextRecordMatrix,
+  "function",
+  "Plate text record workbook adapter should be available"
+);
+assert.equal(
   typeof workbookFormats.extractPlateImageRecordImages,
   "function",
   "Plate image record image extractor should be available"
@@ -110,6 +115,89 @@ assert.equal(plateImageResult.map.track.length, 2);
 assert.equal(plateImageResult.map.track[0].image_url, "blob:synthetic-image-a");
 assert.equal(plateImageResult.map.track[1].image_url, "blob:synthetic-image-b");
 assert.equal(JSON.stringify(plateImageResult.exports).includes("blob:synthetic-image"), false);
+
+const plateTextRecordMatrix = [
+  ["合成牌照文字報表"],
+  [],
+  [
+    "順序",
+    "牌照號碼",
+    "日期時間",
+    "建置期別/埠",
+    "行經道路位置",
+    "分局",
+    "派出所",
+    "座標"
+  ],
+  ["11", "TXT-9001", "115/08/06 07:10:00", "ignored-a", "synthetic-road-a", "ignored-b", "ignored-c", "25.050000, 121.530000"],
+  [],
+  ["12", "TXT-9001", "115/08/06 07:40:00", "ignored-d", "synthetic-road-b", "ignored-e", "ignored-f", "(121.531000 / 25.051000)"]
+];
+
+const plateTextRows = workbookFormats.parsePlateTextRecordMatrix(plateTextRecordMatrix);
+assert.equal(plateTextRows.length, 2);
+assert.deepEqual(Object.keys(plateTextRows[0]), [
+  "順序",
+  "牌照號碼",
+  "日期時間",
+  "行經道路位置",
+  "座標"
+]);
+assert.equal(plateTextRows[0]["順序"], "11");
+assert.equal(plateTextRows[0]["行經道路位置"], "synthetic-road-a");
+assert.equal("建置期別/埠" in plateTextRows[0], false);
+assert.equal("分局" in plateTextRows[0], false);
+assert.equal("派出所" in plateTextRows[0], false);
+assert.equal("牌照圖檔" in plateTextRows[0], false);
+assert.equal(
+  workbookFormats.parsePlateTextRecordMatrix([["not", "a", "plate", "text", "record"]]),
+  null
+);
+assert.equal(
+  workbookFormats.parsePlateTextRecordMatrix(plateImageRecordMatrix),
+  null,
+  "Plate image workbooks should not be adapted as plate text records"
+);
+
+const beyondPlateTextHeaderScanLimit = Array.from({ length: 20 }, (_, index) => [index]);
+beyondPlateTextHeaderScanLimit.push(
+  ["順序", "牌照號碼", "日期時間", "行經道路位置", "座標"],
+  ["1", "TXT-9001", "115/08/06 07:10:00", "synthetic-road", "25.05, 121.53"]
+);
+assert.equal(
+  workbookFormats.parsePlateTextRecordMatrix(beyondPlateTextHeaderScanLimit),
+  null,
+  "Plate text headers after the first 20 rows should not be adapted"
+);
+
+assert.equal(detectDatasetFormat(plateTextRows), "plate_text_record");
+const plateTextColumns = detectColumns(plateTextRows);
+assert.equal(plateTextColumns.id, "順序");
+assert.equal(plateTextColumns.plate, "牌照號碼");
+assert.equal(plateTextColumns.image, undefined);
+assert.equal(plateTextColumns.timestamp, "日期時間");
+assert.equal(plateTextColumns.note, "行經道路位置");
+assert.equal(plateTextColumns.coord, "座標");
+assert.equal(plateTextColumns.source, undefined);
+
+const plateTextNormalized = normalizeRows(plateTextRows);
+assert.equal(plateTextNormalized.length, 2);
+assert.equal(plateTextNormalized[0].id, 11);
+assert.equal(plateTextNormalized[0].plate_norm, "TXT9001");
+assert.equal(plateTextNormalized[0].timestamp.getFullYear(), 2026);
+assert.equal(plateTextNormalized[0].source, "未提供");
+assert.equal(plateTextNormalized[0].note, "synthetic-road-a");
+assert.equal(plateTextNormalized[0].lon, 121.53);
+assert.equal(plateTextNormalized[0].lat, 25.05);
+assert.equal(Object.prototype.hasOwnProperty.call(plateTextNormalized[0], "image_url"), false);
+
+const plateTextResult = analyzeRecords(plateTextRows, { normalDrivingSpeedKmh: 40 });
+assert.equal(plateTextResult.summary.cleaning_skipped, false);
+assert.equal(plateTextResult.map.track.length, 2);
+assert.equal(
+  plateTextResult.map.track.some((row) => Object.prototype.hasOwnProperty.call(row, "image_url")),
+  false
+);
 
 const gpsRecordMatrix = [
   ["記錄列表"],
@@ -211,6 +299,21 @@ globalThis.XLSX = {
 };
 
 try {
+  syntheticWorkbook = {
+    SheetNames: ["plate-text"],
+    Sheets: {
+      "plate-text": {
+        name: "plate-text",
+        matrix: plateTextRecordMatrix,
+        rows: [{ legacy: "should-not-run" }]
+      }
+    }
+  };
+  sheetToJsonCalls = [];
+  const parsedPlateTextWorkbook = await parseWorkbookArrayBuffer(new ArrayBuffer(0));
+  assert.deepEqual(parsedPlateTextWorkbook, plateTextRows);
+  assert.deepEqual(sheetToJsonCalls, [{ sheet: "plate-text", matrix: true }]);
+
   syntheticWorkbook = {
     SheetNames: ["gps"],
     Sheets: {

@@ -1,4 +1,4 @@
-import { escapeHtml } from "../shared/utils.js?v=20260804a";
+import { escapeHtml } from "../shared/utils.js?v=20260806a";
 
 function isLocalPlateImageUrl(value) {
   return String(value ?? "").trim().startsWith("blob:");

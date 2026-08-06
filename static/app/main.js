@@ -13,11 +13,11 @@ import {
   OVERNIGHT_MODE_NIGHT,
   PARKING_CLUSTER_RADIUS_M,
   PARKING_SETTINGS_KEY
-} from "./shared/constants.js?v=20260804a";
-import { els } from "./shared/dom.js?v=20260804a";
-import { state } from "./shared/state.js?v=20260804a";
-import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260804a";
-import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260804a";
+} from "./shared/constants.js?v=20260806a";
+import { els } from "./shared/dom.js?v=20260806a";
+import { state } from "./shared/state.js?v=20260806a";
+import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260806a";
+import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260806a";
 import {
   invalidateRoutineMap,
   renderRoutineView,
@@ -25,18 +25,19 @@ import {
   selectAllRoutineDraftHours,
   syncRoutineFilterUi,
   toggleRoutineDraftHour
-} from "./views/routineView.js?v=20260804a";
-import { renderTable } from "./views/tableView.js?v=20260804a";
-import { createParkingView } from "./views/parkingView.js?v=20260804a";
-import { createMainMapView } from "./views/mainMapView.js?v=20260804a";
-import { createAiView } from "./views/aiView.js?v=20260804a";
-import { initPlateImageViewer } from "./views/plateImageView.js?v=20260804a";
-import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260804a";
+} from "./views/routineView.js?v=20260806a";
+import { renderTable } from "./views/tableView.js?v=20260806a";
+import { createParkingView } from "./views/parkingView.js?v=20260806a";
+import { createMainMapView } from "./views/mainMapView.js?v=20260806a";
+import { createAiView } from "./views/aiView.js?v=20260806a";
+import { initPlateImageViewer } from "./views/plateImageView.js?v=20260806a";
+import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260806a";
 import {
   extractPlateImageRecordImages,
   parseGpsRecordListMatrix,
-  parsePlateImageRecordMatrix
-} from "./analysis/workbookFormats.js?v=20260804a";
+  parsePlateImageRecordMatrix,
+  parsePlateTextRecordMatrix
+} from "./analysis/workbookFormats.js?v=20260806a";
 
 const THEME_COOKIE_NAME = "caridentify-theme";
 const DISQUS_SHORTNAME = "secbeatercom";
@@ -662,6 +663,11 @@ let disqusLoaded = false;
       .every((name) => has(name));
     if (isPlateImageRecord) {
       return "plate_image_record";
+    }
+    const isPlateTextRecord = !has("牌照圖檔")
+      && ["順序", "牌照號碼", "日期時間", "行經道路位置", "座標"].every((name) => has(name));
+    if (isPlateTextRecord) {
+      return "plate_text_record";
     }
     const isCombinedCoordinate = ["編號", "車號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
     if (isCombinedCoordinate) {
@@ -1683,6 +1689,10 @@ function downloadTextFile(filename, text, mimeType) {
           ...row,
           牌照圖檔: imageUrlByRow.get(plateImageRecord.rowIndexes[index]) || ""
         }));
+      }
+      const plateTextRows = parsePlateTextRecordMatrix(matrix);
+      if (plateTextRows) {
+        return plateTextRows;
       }
       const gpsRows = parseGpsRecordListMatrix(matrix);
       if (gpsRows) {

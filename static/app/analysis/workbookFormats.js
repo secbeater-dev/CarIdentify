@@ -2,6 +2,8 @@ const GPS_RECORD_HEADERS = ["定位時間", "定位位置", "地標名稱", "經
 const GPS_RECORD_HEADER_SCAN_LIMIT = 20;
 const PLATE_IMAGE_RECORD_HEADERS = ["順序", "牌照號碼", "牌照圖檔", "日期時間", "行經道路位置", "座標"];
 const PLATE_IMAGE_RECORD_HEADER_SCAN_LIMIT = 20;
+const PLATE_TEXT_RECORD_HEADERS = ["順序", "牌照號碼", "日期時間", "行經道路位置", "座標"];
+const PLATE_TEXT_RECORD_HEADER_SCAN_LIMIT = 20;
 const PLATE_IMAGE_MAX_COUNT = 5000;
 const PLATE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const PLATE_IMAGE_MAX_TOTAL_BYTES = 100 * 1024 * 1024;
@@ -127,6 +129,50 @@ export function parsePlateImageRecordMatrix(matrix) {
   });
 
   return { rows, rowIndexes };
+}
+
+function findPlateTextHeaderRow(matrix) {
+  const limit = Math.min(matrix.length, PLATE_TEXT_RECORD_HEADER_SCAN_LIMIT);
+  for (let rowIndex = 0; rowIndex < limit; rowIndex += 1) {
+    const headers = Array.isArray(matrix[rowIndex])
+      ? matrix[rowIndex].map(textValue)
+      : [];
+    if (
+      !headers.includes("牌照圖檔")
+      && PLATE_TEXT_RECORD_HEADERS.every((header) => headers.includes(header))
+    ) {
+      return rowIndex;
+    }
+  }
+  return -1;
+}
+
+export function parsePlateTextRecordMatrix(matrix) {
+  if (!Array.isArray(matrix) || matrix.length === 0) {
+    return null;
+  }
+
+  const headerRowIndex = findPlateTextHeaderRow(matrix);
+  if (headerRowIndex < 0) {
+    return null;
+  }
+
+  const headers = matrix[headerRowIndex].map(textValue);
+  const columnIndex = new Map(headers.map((header, index) => [header, index]));
+  const getCell = (row, header) => row?.[columnIndex.get(header)] ?? "";
+
+  return matrix
+    .slice(headerRowIndex + 1)
+    .filter((row) => PLATE_TEXT_RECORD_HEADERS.some(
+      (header) => textValue(getCell(row, header)) !== ""
+    ))
+    .map((row) => ({
+      順序: getCell(row, "順序"),
+      牌照號碼: getCell(row, "牌照號碼"),
+      日期時間: getCell(row, "日期時間"),
+      行經道路位置: getCell(row, "行經道路位置"),
+      座標: getCell(row, "座標")
+    }));
 }
 
 function normalizePackagePath(value) {
