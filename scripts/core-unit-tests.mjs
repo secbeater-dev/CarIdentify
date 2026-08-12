@@ -440,6 +440,71 @@ assert.equal(result.summary.clean_records, 3);
 assert.equal(result.map.track.length, 3);
 assert.ok(result.stays.length >= 1);
 
+const anonymousCoordinateRowsA = [
+  {
+    "編號": "1",
+    "時間": "115/08/12 08:00:00",
+    "來源": "anonymous-unit-a",
+    "備註": "synthetic-anonymous-a",
+    "經緯度": "25.040000, 121.520000"
+  },
+  {
+    "編號": "2",
+    "時間": "115/08/12 08:30:00",
+    "來源": "anonymous-unit-b",
+    "備註": "synthetic-anonymous-b",
+    "經緯度": "25.041000 121.521000"
+  }
+];
+const anonymousCoordinateRowsB = [
+  {
+    "編號": "1",
+    "時間": "115/08/12 09:00:00",
+    "來源": "anonymous-unit-c",
+    "備註": "synthetic-anonymous-c",
+    "經緯度": "(121.522000 / 25.042000)"
+  },
+  {
+    "編號": "2",
+    "時間": "115/08/12 09:30:00",
+    "來源": "anonymous-unit-d",
+    "備註": "synthetic-anonymous-d",
+    "經緯度": "121.523000,25.043000"
+  }
+];
+
+assert.equal(detectDatasetFormat(anonymousCoordinateRowsA), "anonymous_coordinate_record");
+const anonymousNormalized = normalizeRows(anonymousCoordinateRowsA);
+assert.equal(anonymousNormalized.length, 2);
+assert.equal(anonymousNormalized[0].plate, "未提供");
+assert.equal(anonymousNormalized[0].plate_norm, "未提供");
+assert.equal(anonymousNormalized[0].timestamp.getFullYear(), 2026);
+assert.equal(anonymousNormalized[0].lon, 121.52);
+assert.equal(anonymousNormalized[0].lat, 25.04);
+assert.equal(Object.hasOwn(anonymousNormalized[0], "image_url"), false);
+
+const anonymousSingleResult = analyzeRecords(anonymousCoordinateRowsA, { normalDrivingSpeedKmh: 40 });
+assert.equal(anonymousSingleResult.summary.cleaning_skipped, false);
+assert.equal(anonymousSingleResult.summary.raw_records, anonymousCoordinateRowsA.length);
+assert.equal(anonymousSingleResult.map.track.length, anonymousCoordinateRowsA.length);
+
+const anonymousMergedRows = [...anonymousCoordinateRowsA, ...anonymousCoordinateRowsB];
+const anonymousMergedResult = analyzeRecords(anonymousMergedRows, { normalDrivingSpeedKmh: 40 });
+assert.equal(anonymousMergedResult.summary.raw_records, anonymousMergedRows.length);
+assert.equal(anonymousMergedResult.summary.clean_records, anonymousMergedRows.length);
+assert.equal(anonymousMergedResult.map.track.length, anonymousMergedRows.length);
+assert.equal(anonymousMergedResult.summary.plate_display, "未提供");
+
+const genericRowsWithoutPlate = [
+  {
+    "時間戳": "2026-08-12 08:00:00",
+    "經度": "121.52",
+    "緯度": "25.04"
+  }
+];
+assert.equal(detectDatasetFormat(genericRowsWithoutPlate), "generic");
+assert.throws(() => normalizeRows(genericRowsWithoutPlate), /缺少必要欄位/);
+
 const splitCoordinateRows = [
   {
     "編號": "1",

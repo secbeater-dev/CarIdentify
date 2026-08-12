@@ -11,6 +11,7 @@ param(
   [string]$GpsRecordDir = '',
   [string]$PlateImagePath = '',
   [string]$PlateTextPath = '',
+  [string]$AnonymousCoordinateDir = '',
   [string[]]$Cases = @()
 )
 
@@ -88,7 +89,8 @@ function Invoke-EdgeCase(
   [string]$ResolvedRoutineFilter,
   [string]$ResolvedGpsRecordDir,
   [string]$ResolvedPlateImage,
-  [string]$ResolvedPlateText
+  [string]$ResolvedPlateText,
+  [string]$ResolvedAnonymousCoordinateDir
 ) {
   if (Test-Path $ProfileDir) {
     Remove-Item -LiteralPath $ProfileDir -Recurse -Force
@@ -143,6 +145,9 @@ function Invoke-EdgeCase(
     if (-not [string]::IsNullOrWhiteSpace($ResolvedPlateText)) {
       $nodeArgs += @('--plate-text', $ResolvedPlateText)
     }
+    if (-not [string]::IsNullOrWhiteSpace($ResolvedAnonymousCoordinateDir)) {
+      $nodeArgs += @('--anonymous-coordinate-dir', $ResolvedAnonymousCoordinateDir)
+    }
 
     & $NodePath @nodeArgs 2>&1 | ForEach-Object { Write-Host $_ }
 
@@ -196,6 +201,7 @@ $resolvedRoutineFilter = Resolve-OptionalPath $RoutineFilterPath
 $resolvedGpsRecordDir = Resolve-OptionalPath $GpsRecordDir
 $resolvedPlateImage = Resolve-OptionalPath $PlateImagePath
 $resolvedPlateText = Resolve-OptionalPath $PlateTextPath
+$resolvedAnonymousCoordinateDir = Resolve-OptionalPath $AnonymousCoordinateDir
 
 $pythonArgs = if ((Split-Path $pythonPath -Leaf).ToLowerInvariant() -eq 'py.exe') {
   @('-3', '-m', 'http.server', $ServerPort)
@@ -236,6 +242,9 @@ if (-not [string]::IsNullOrWhiteSpace($resolvedPlateImage) -and $cases -notconta
 if (-not [string]::IsNullOrWhiteSpace($resolvedPlateText) -and $cases -notcontains 'plate-text-record-sensitive') {
   $cases += 'plate-text-record-sensitive'
 }
+if (-not [string]::IsNullOrWhiteSpace($resolvedAnonymousCoordinateDir) -and $cases -notcontains 'anonymous-coordinate-record-sensitive') {
+  $cases += 'anonymous-coordinate-record-sensitive'
+}
 $results = @()
 
 try {
@@ -257,7 +266,8 @@ try {
       -ResolvedRoutineFilter $resolvedRoutineFilter `
       -ResolvedGpsRecordDir $resolvedGpsRecordDir `
       -ResolvedPlateImage $resolvedPlateImage `
-      -ResolvedPlateText $resolvedPlateText
+      -ResolvedPlateText $resolvedPlateText `
+      -ResolvedAnonymousCoordinateDir $resolvedAnonymousCoordinateDir
     $results += [pscustomobject]@{
       CaseName = $caseName
       ExitCode = $exitCode

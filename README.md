@@ -2,8 +2,9 @@
 
 純前端的車輛辨識分析站點，可直接部署到 GitHub Pages，沒有後端服務。現行入口為 `static/app/main.js`，自訂網域為 `car.secbeater.com`。
 
-## 2026-08-06 現況
+## 2026-08-12 現況
 
+- 新增 `anonymous_coordinate_record` 格式，無車牌欄時以「未提供」分析並保留單檔或合併上傳的全部資料集。
 - 新增 `plate_text_record` 格式，可辨識前置說明列、前 20 列內表頭、民國日期與合併座標，不啟用圖片解析或圖片 UI。
 - 新增 `plate_image_record` 格式，可辨識前置說明列、第 2 列表頭、民國日期、合併座標與 Excel 內嵌牌照圖片。
 - 牌照圖片只以 `blob:` URL 保留在目前瀏覽器分頁的記憶體，重新分析或離開頁面時會回收。
@@ -79,7 +80,7 @@ CarIdentify/
 ### `static/app/analysis/core.js`
 
 - 欄位別名偵測
-- 資料格式辨識：`generic`、`vehicle_recognition`、`idkcity_camera`、`combined_coordinate`、`irent`、`gps_record_list`、`plate_image_record`、`plate_text_record`
+- 資料格式辨識：`generic`、`vehicle_recognition`、`idkcity_camera`、`combined_coordinate`、`anonymous_coordinate_record`、`irent`、`gps_record_list`、`plate_image_record`、`plate_text_record`
 - 時間解析、車牌正規化、經緯度自動交換修正
 - 傳送門清洗、停留判定、過夜 / 日間分析、熱區聚類
 - 地圖 payload 與 CSV 匯出內容建構
@@ -164,6 +165,19 @@ CarIdentify/
   - `lon/lat = 經緯度`
 - `經緯度` 可為 `經度, 緯度` 或 `緯度, 經度`，系統會依台灣常見座標範圍判斷順序
 - 這個格式走一般分析流程，不是 `vehicle_recognition`
+
+### `anonymous_coordinate_record`
+
+- 必要標頭：`編號`、`時間`、`來源`、`備註`、`經緯度`，且不得有車牌欄
+- 正規化對應：
+  - `id = 編號`
+  - `plate/plate_norm = 未提供`
+  - `timestamp = 時間`
+  - `source = 來源`
+  - `note = 備註`
+  - `lon/lat = 經緯度`
+- 單檔與多檔合併上傳會視為同一個「未提供」車牌資料集
+- 沿用民國日期、合併座標順序判斷及一般清洗流程，不啟用圖片解析或圖片 UI
 
 ### `irent`
 
@@ -324,6 +338,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.
 - `plate-image-ooxml-synthetic`（完全合成的記憶體內 OOXML、圖片限制與 blob URL 測試）
 - `plate-image-record-sensitive`（需指定 repo 外的私有檔案；全程離線且只輸出 PASS／FAIL）
 - `plate-text-record-sensitive`（需指定 repo 外的私有檔案；全程離線且只輸出 PASS／FAIL）
+- `anonymous-coordinate-record-sensitive`（需指定 repo 外的私有資料夾；逐檔及合併測試全程離線且只輸出 PASS／FAIL）
 
 測試案例會依實際指定的 repo 外 fixture 動態執行；沒有 legacy fixture 時仍會執行 `startup-dom`。
 
@@ -349,6 +364,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.ps1 -PlateTextPath <private-workbook-path>
+```
+
+若要驗證無車牌合併座標資料夾格式：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-browser-tests.ps1 -AnonymousCoordinateDir <private-data-directory>
 ```
 
 ## GitHub Pages

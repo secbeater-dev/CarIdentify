@@ -13,11 +13,11 @@ import {
   OVERNIGHT_MODE_NIGHT,
   PARKING_CLUSTER_RADIUS_M,
   PARKING_SETTINGS_KEY
-} from "./shared/constants.js?v=20260806a";
-import { els } from "./shared/dom.js?v=20260806a";
-import { state } from "./shared/state.js?v=20260806a";
-import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260806a";
-import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260806a";
+} from "./shared/constants.js?v=20260812a";
+import { els } from "./shared/dom.js?v=20260812a";
+import { state } from "./shared/state.js?v=20260812a";
+import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260812a";
+import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260812a";
 import {
   invalidateRoutineMap,
   renderRoutineView,
@@ -25,19 +25,19 @@ import {
   selectAllRoutineDraftHours,
   syncRoutineFilterUi,
   toggleRoutineDraftHour
-} from "./views/routineView.js?v=20260806a";
-import { renderTable } from "./views/tableView.js?v=20260806a";
-import { createParkingView } from "./views/parkingView.js?v=20260806a";
-import { createMainMapView } from "./views/mainMapView.js?v=20260806a";
-import { createAiView } from "./views/aiView.js?v=20260806a";
-import { initPlateImageViewer } from "./views/plateImageView.js?v=20260806a";
-import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260806a";
+} from "./views/routineView.js?v=20260812a";
+import { renderTable } from "./views/tableView.js?v=20260812a";
+import { createParkingView } from "./views/parkingView.js?v=20260812a";
+import { createMainMapView } from "./views/mainMapView.js?v=20260812a";
+import { createAiView } from "./views/aiView.js?v=20260812a";
+import { initPlateImageViewer } from "./views/plateImageView.js?v=20260812a";
+import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260812a";
 import {
   extractPlateImageRecordImages,
   parseGpsRecordListMatrix,
   parsePlateImageRecordMatrix,
   parsePlateTextRecordMatrix
-} from "./analysis/workbookFormats.js?v=20260806a";
+} from "./analysis/workbookFormats.js?v=20260812a";
 
 const THEME_COOKIE_NAME = "caridentify-theme";
 const DISQUS_SHORTNAME = "secbeatercom";
@@ -673,6 +673,12 @@ let disqusLoaded = false;
     if (isCombinedCoordinate) {
       return "combined_coordinate";
     }
+    const hasKnownPlateColumn = ["車牌", "車號", "車牌號碼", "牌照號碼", "plate"].some((name) => has(name));
+    const isAnonymousCoordinateRecord = !hasKnownPlateColumn
+      && ["編號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
+    if (isAnonymousCoordinateRecord) {
+      return "anonymous_coordinate_record";
+    }
     const isGpsRecordList = ["車號", "定位時間", "定位位置", "地標名稱", "經度", "緯度"].every((name) => has(name));
     if (isGpsRecordList) {
       return "gps_record_list";
@@ -1008,12 +1014,16 @@ let disqusLoaded = false;
       throw new Error("Input rows are empty.");
     }
 
-    if (detectDatasetFormat(rawRows) === "idkcity_camera") {
+    const datasetFormat = detectDatasetFormat(rawRows);
+    if (datasetFormat === "idkcity_camera") {
       return normalizeIdkcityRows(rawRows);
     }
 
-    const selected = detectColumns(rawRows);
-    const output = rawRows.map((row, idx) => {
+    const sourceRows = datasetFormat === "anonymous_coordinate_record"
+      ? rawRows.map((row) => ({ ...row, "車號": "未提供" }))
+      : rawRows;
+    const selected = detectColumns(sourceRows);
+    const output = sourceRows.map((row, idx) => {
       const idRaw = selected.id ? row[selected.id] : idx + 1;
       const idNum = Number.parseInt(idRaw, 10);
       const coordinatePair = selected.coord ? parseCoordinatePair(row[selected.coord]) : null;

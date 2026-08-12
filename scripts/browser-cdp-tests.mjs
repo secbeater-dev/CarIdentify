@@ -25,16 +25,19 @@ const routineFilterPath = args["routine-filter"] ? path.resolve(String(args["rou
 const gpsRecordDir = args["gps-record-dir"] ? path.resolve(String(args["gps-record-dir"])) : "";
 const plateImagePath = args["plate-image"] ? path.resolve(String(args["plate-image"])) : "";
 const plateTextPath = args["plate-text"] ? path.resolve(String(args["plate-text"])) : "";
+const anonymousCoordinateDir = args["anonymous-coordinate-dir"]
+  ? path.resolve(String(args["anonymous-coordinate-dir"]))
+  : "";
 const timeoutMs = Number(args.timeout || 30000);
 const requestedCase = args.case ? String(args.case) : "";
-const MODULE_VERSION = "20260806a";
+const MODULE_VERSION = "20260812a";
 
 function isSensitiveCaseName(name) {
   const value = String(name || "");
   return value.includes("sensitive") || value === "irent-single";
 }
 
-function listGpsRecordPaths(directory) {
+function listWorkbookPaths(directory) {
   if (!directory) return [];
   try {
     return fs.readdirSync(directory, { withFileTypes: true })
@@ -46,7 +49,8 @@ function listGpsRecordPaths(directory) {
   }
 }
 
-const gpsRecordPaths = listGpsRecordPaths(gpsRecordDir);
+const gpsRecordPaths = listWorkbookPaths(gpsRecordDir);
+const anonymousCoordinatePaths = listWorkbookPaths(anonymousCoordinateDir);
 const requiredFilesByCase = {
   "xlsx-single": [xlsxPath],
   "csv-single": [csvPath],
@@ -57,7 +61,8 @@ const requiredFilesByCase = {
   "routine-filter-table": [routineFilterPath],
   "gps-record-list-sensitive": gpsRecordPaths,
   "plate-image-record-sensitive": [plateImagePath],
-  "plate-text-record-sensitive": [plateTextPath]
+  "plate-text-record-sensitive": [plateTextPath],
+  "anonymous-coordinate-record-sensitive": anonymousCoordinatePaths
 };
 const requiredFiles = requestedCase
   ? requiredFilesByCase[requestedCase] || []
@@ -71,11 +76,17 @@ const requiredFiles = requestedCase
       routineFilterPath ? [routineFilterPath] : [],
       gpsRecordPaths,
       plateImagePath ? [plateImagePath] : [],
-      plateTextPath ? [plateTextPath] : []
+      plateTextPath ? [plateTextPath] : [],
+      anonymousCoordinatePaths
     );
 
 if (requestedCase === "gps-record-list-sensitive" && gpsRecordPaths.length === 0) {
   console.error("Sensitive GPS workbook test input is unavailable; details redacted.");
+  process.exit(1);
+}
+
+if (requestedCase === "anonymous-coordinate-record-sensitive" && anonymousCoordinatePaths.length === 0) {
+  console.error("Sensitive anonymous coordinate workbook test input is unavailable; details redacted.");
   process.exit(1);
 }
 
@@ -1530,6 +1541,106 @@ async function testPlateTextRecordSensitive(client) {
   }
 }
 
+async function assertAnonymousCoordinateSensitiveState(client) {
+  const valid = await evaluate(client, `(async () => {
+    const [{ state }, core] = await Promise.all([
+      import('./static/app/shared/state.js?v=${MODULE_VERSION}'),
+      import('./static/app/analysis/core.js?v=${MODULE_VERSION}')
+    ]);
+    const files = Array.from(document.querySelector('#file-input')?.files || []);
+    if (files.length === 0) return false;
+
+    let expectedRows = 0;
+    for (const file of files) {
+      const rows = await core.parseWorkbookArrayBuffer(await file.arrayBuffer());
+      if (core.detectDatasetFormat(rows) !== 'anonymous_coordinate_record') return false;
+      const normalized = core.normalizeRows(rows);
+      if (!normalized.length || !normalized.every((row) => (
+        row.plate === '未提供' &&
+        row.plate_norm === '未提供' &&
+        row.timestamp instanceof Date &&
+        !Number.isNaN(row.timestamp.getTime()) &&
+        Number.isFinite(Number(row.lat)) &&
+        Number.isFinite(Number(row.lon)) &&
+        !Object.prototype.hasOwnProperty.call(row, 'image_url')
+      ))) return false;
+      expectedRows += normalized.length;
+    }
+
+    const analysis = state.analysis;
+    const track = Array.isArray(analysis?.map?.track) ? analysis.map.track : [];
+    return Boolean(
+      analysis &&
+      expectedRows > 0 &&
+      analysis.summary?.raw_records === expectedRows &&
+      analysis.summary?.plate_display === '未提供' &&
+      analysis.summary?.cleaning_skipped === false &&
+      track.length > 0 &&
+      track.every((row) => {
+        const time = new Date(String(row.time || '').replace(' ', 'T'));
+        return Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lon)) &&
+          !Number.isNaN(time.getTime()) &&
+          !Object.prototype.hasOwnProperty.call(row, 'image_url');
+      }) &&
+      Array.isArray(analysis.hourly_distribution) &&
+      analysis.hourly_distribution.length === 24 &&
+      Array.isArray(state.workbookImageUrls) &&
+      state.workbookImageUrls.length === 0 &&
+      !JSON.stringify(analysis.exports || {}).includes('blob:')
+    );
+  })()`);
+  assertCondition(valid, "Sensitive anonymous coordinate workbook state is invalid; details redacted.");
+}
+
+async function assertAnonymousCoordinateSensitiveViews(client) {
+  await assertGpsRecordSensitiveViews(client);
+  await ensureView(client, "routine");
+  const routineValid = await waitFor(client, "sensitive anonymous coordinate routine consistency", async () => {
+    const valid = await evaluate(client, `import('./static/app/shared/state.js?v=${MODULE_VERSION}').then(({ state }) => {
+      const rows = Array.isArray(state.routineFilteredTrack) ? state.routineFilteredTrack : [];
+      const tableRows = document.querySelectorAll('#table-routine tbody tr').length;
+      const mapMarkers = state.routineLayers?.points?.getLayers?.().length || 0;
+      return rows.length > 0 && tableRows === rows.length && mapMarkers === rows.length;
+    })`);
+    return valid ? true : null;
+  }, { timeout: 15000, interval: 250 });
+  assertCondition(routineValid, "Sensitive anonymous coordinate routine view is inconsistent; details redacted.");
+
+  const hasUnexpectedImageUi = await evaluate(client, `Boolean(
+    document.querySelector('.plate-image-thumbnail, .plate-image-missing')
+  )`);
+  assertCondition(!hasUnexpectedImageUi, "Sensitive anonymous coordinate workbook rendered image UI; details redacted.");
+}
+
+async function testAnonymousCoordinateRecordSensitive(client) {
+  const batches = anonymousCoordinatePaths.map((filePath) => [filePath]).concat([anonymousCoordinatePaths]);
+  try {
+    for (let index = 0; index < batches.length; index += 1) {
+      if (index > 0) {
+        await navigateToAboutBlankAndWait(client);
+        await setNetworkOffline(client, false);
+        await navigateToBaseUrl(client);
+        await closeFirstOpenOverlayIfPresent(client);
+      } else {
+        await waitForPageReady(client);
+        await closeFirstOpenOverlayIfPresent(client);
+      }
+
+      await setNetworkOffline(client, true);
+      await uploadAndAnalyze(client, batches[index]);
+      await assertSensitiveAnalysisSuccess(client);
+      await assertAnonymousCoordinateSensitiveState(client);
+      await assertAnonymousCoordinateSensitiveViews(client);
+    }
+  } finally {
+    await navigateToAboutBlankAndWait(client).catch(() => {});
+    const pageIsBlank = await evaluate(client, `location.href === "about:blank"`).catch(() => false);
+    if (pageIsBlank) {
+      await setNetworkOffline(client, false).catch(() => {});
+    }
+  }
+}
+
 async function testPlateImageOoxmlSynthetic(client) {
   await waitForPageReady(client);
   await closeFirstOpenOverlayIfPresent(client);
@@ -1972,7 +2083,8 @@ async function main() {
     ["gps-record-list-sensitive", testGpsRecordListSensitive],
     ["plate-image-ooxml-synthetic", testPlateImageOoxmlSynthetic],
     ["plate-image-record-sensitive", testPlateImageRecordSensitive],
-    ["plate-text-record-sensitive", testPlateTextRecordSensitive]
+    ["plate-text-record-sensitive", testPlateTextRecordSensitive],
+    ["anonymous-coordinate-record-sensitive", testAnonymousCoordinateRecordSensitive]
   ];
   const availableTests = tests.filter(([name]) => {
     if (name === "xlsx-single") return Boolean(xlsxPath);
@@ -1985,6 +2097,7 @@ async function main() {
     if (name === "gps-record-list-sensitive") return gpsRecordPaths.length > 0;
     if (name === "plate-image-record-sensitive") return Boolean(plateImagePath);
     if (name === "plate-text-record-sensitive") return Boolean(plateTextPath);
+    if (name === "anonymous-coordinate-record-sensitive") return anonymousCoordinatePaths.length > 0;
     return true;
   });
   const selectedTests = requestedCase

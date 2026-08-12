@@ -1,7 +1,7 @@
 import {
   DEFAULT_NORMAL_DRIVING_SPEED_KMH,
   HOME
-} from "../shared/constants.js?v=20260806a";
+} from "../shared/constants.js?v=20260812a";
 import {
   formatDateTime,
   formatDuration,
@@ -12,13 +12,13 @@ import {
   overlapNightHours,
   parseRocDateTime,
   toNumber
-} from "../shared/utils.js?v=20260806a";
+} from "../shared/utils.js?v=20260812a";
 import {
   extractPlateImageRecordImages,
   parseGpsRecordListMatrix,
   parsePlateImageRecordMatrix,
   parsePlateTextRecordMatrix
-} from "./workbookFormats.js?v=20260806a";
+} from "./workbookFormats.js?v=20260812a";
 
 export function normalizeHeaderKey(value) {
   return String(value ?? "")
@@ -81,6 +81,12 @@ export function detectDatasetFormat(rows) {
   const isCombinedCoordinate = ["編號", "車號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
   if (isCombinedCoordinate) {
     return "combined_coordinate";
+  }
+  const hasKnownPlateColumn = ["車牌", "車號", "車牌號碼", "牌照號碼", "plate"].some((name) => has(name));
+  const isAnonymousCoordinateRecord = !hasKnownPlateColumn
+    && ["編號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
+  if (isAnonymousCoordinateRecord) {
+    return "anonymous_coordinate_record";
   }
   const isGpsRecordList = ["車號", "定位時間", "定位位置", "地標名稱", "經度", "緯度"].every((name) => has(name));
   if (isGpsRecordList) {
@@ -417,12 +423,16 @@ export function normalizeRows(rawRows) {
     throw new Error("Input rows are empty.");
   }
 
-  if (detectDatasetFormat(rawRows) === "idkcity_camera") {
+  const datasetFormat = detectDatasetFormat(rawRows);
+  if (datasetFormat === "idkcity_camera") {
     return normalizeIdkcityRows(rawRows);
   }
 
-  const selected = detectColumns(rawRows);
-  const output = rawRows.map((row, idx) => {
+  const sourceRows = datasetFormat === "anonymous_coordinate_record"
+    ? rawRows.map((row) => ({ ...row, "車號": "未提供" }))
+    : rawRows;
+  const selected = detectColumns(sourceRows);
+  const output = sourceRows.map((row, idx) => {
     const idRaw = selected.id ? row[selected.id] : idx + 1;
     const idNum = Number.parseInt(idRaw, 10);
     const coordinatePair = selected.coord ? parseCoordinatePair(row[selected.coord]) : null;
