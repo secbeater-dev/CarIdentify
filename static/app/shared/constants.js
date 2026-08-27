@@ -44,6 +44,9 @@ export const DEFAULT_NORMAL_DRIVING_SPEED_KMH = 40;
 export const MIN_NORMAL_DRIVING_SPEED_KMH = 1;
 export const MAX_NORMAL_DRIVING_SPEED_KMH = 150;
 export const PARKING_CLUSTER_RADIUS_M = 100;
+export const TIMELINE_SELECT_MAX_OPTIONS = 500;
+export const LARGE_IMPORT_FILE_BYTES = 15 * 1024 * 1024;
+export const ASSET_VERSION = "20260827a";
 
 export const DEFAULT_ROUTINE_FILTER = {
   selectedHours: Array.from({ length: 24 }, (_, hour) => hour)

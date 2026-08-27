@@ -604,4 +604,9 @@ assert.equal(irentResult.summary.coordinate_swapped_fixed, true);
 assert.equal(irentResult.map.track[0].lon, 121.5);
 assert.equal(irentResult.map.track[0].lat, 25.1);
 
+const skipCsvResult = analyzeRecords(irentRows, { normalDrivingSpeedKmh: 40, skipCsvExports: true });
+assert.equal(skipCsvResult.exports.stay_csv, "");
+assert.equal(skipCsvResult.exports.hotspot_csv, "");
+assert.equal(skipCsvResult.exports.validation_csv, "");
+
 console.log("PASS core-unit-tests");

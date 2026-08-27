@@ -3,7 +3,7 @@ import {
   DEFAULT_PARKING_SETTINGS,
   DEFAULT_ROUTINE_FILTER,
   OVERNIGHT_MODE_NIGHT
-} from "./constants.js?v=20260812a";
+} from "./constants.js?v=20260827a";
 
 export const state = {
   analysis: null,
@@ -45,6 +45,7 @@ export const state = {
   parkingClusterByIndex: new Map(),
   routineFilteredTrack: [],
   workbookImageUrls: [],
+  renderedViews: new Set(),
   csvExports: {
     stay: "",
     hotspot: "",

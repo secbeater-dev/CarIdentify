@@ -1,4 +1,4 @@
-import { escapeHtml } from "../shared/utils.js?v=20260812a";
+import { escapeHtml } from "../shared/utils.js?v=20260827a";
 
 function clearTableRowHandler(container) {
   if (!container?.__tableRowClickHandler) return;

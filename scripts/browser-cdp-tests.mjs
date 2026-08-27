@@ -30,7 +30,7 @@ const anonymousCoordinateDir = args["anonymous-coordinate-dir"]
   : "";
 const timeoutMs = Number(args.timeout || 30000);
 const requestedCase = args.case ? String(args.case) : "";
-const MODULE_VERSION = "20260812a";
+const MODULE_VERSION = "20260827a";
 
 function isSensitiveCaseName(name) {
   const value = String(name || "");
@@ -1151,61 +1151,47 @@ async function testStartup(client) {
   const noticeInfo = await waitFor(client, "daily notice content", async () => {
     const info = await evaluate(client, `(() => {
       const overlay = document.querySelector('.first-open-overlay');
+      const cards = Array.from(overlay?.querySelectorAll('.first-open-community-card') || []);
       return {
         exists: Boolean(overlay),
         text: overlay?.textContent || "",
-        telegramHref: overlay?.querySelector('.first-open-community-card')?.href || "",
-        inlineTelegramText: overlay?.querySelector('.first-open-copy a[href="https://t.me/secbeater"]')?.textContent?.trim() || "",
-        imageSrc: overlay?.querySelector('.first-open-community-image')?.src || "",
-        imageLabel: overlay?.querySelector('.first-open-community-card span')?.textContent?.trim() || "",
+        telegramHref: overlay?.querySelector('.first-open-copy a[href="https://t.me/tg_secbeater"]')?.href || "",
+        refreshLabel: overlay?.querySelector('[data-action="refresh"]')?.textContent?.trim() || "",
+        closeExists: Boolean(overlay?.querySelector('[data-action="close"]')),
+        supportPanel: Boolean(overlay?.querySelector('.first-open-support-panel')),
+        cardHrefs: cards.map((card) => card.href),
+        cardLabels: cards.map((card) => card.querySelector("span")?.textContent?.trim() || ""),
+        imageSrcs: cards.map((card) => card.querySelector("img")?.getAttribute("src") || ""),
         titleColor: overlay ? getComputedStyle(overlay.querySelector('.first-open-modal h3')).color : "",
-        cardTransform: overlay ? getComputedStyle(overlay.querySelector('.first-open-community-card')).transform : ""
+        brandHref: document.querySelector(".brand-icon-link")?.href || ""
       };
     })()`);
     return info?.exists ? info : null;
   }, { timeout: 8000, interval: 150 });
-  assertCondition(noticeInfo.text.includes("今日重點（2026-06-25）"), "Daily notice missing 2026-06-25 heading");
-  assertCondition(noticeInfo.text.includes("新增淺色模式") && noticeInfo.text.includes("新增留言板"), "Daily notice missing 2026-06-25 bullets");
-  assertCondition(noticeInfo.text.includes("任何問題歡迎於") && noticeInfo.inlineTelegramText === "Telegram" && noticeInfo.telegramHref === "https://t.me/secbeater", `Unexpected notice Telegram link/text ${JSON.stringify(noticeInfo)}`);
-  assertCondition(noticeInfo.imageSrc === "https://cdn.rafled.com/anime-icons/images/6nuiK8b9XPLt.jpg", `Unexpected notice image ${noticeInfo.imageSrc}`);
-  assertCondition(noticeInfo.imageLabel.includes("Gemini Pro") && noticeInfo.imageLabel.includes("NT$1,500") && noticeInfo.imageLabel.includes("NT$8,280"), `Unexpected notice image label ${noticeInfo.imageLabel}`);
-  assertCondition(noticeInfo.titleColor === "rgb(255, 216, 91)", `Unexpected notice title color ${noticeInfo.titleColor}`);
-  assertCondition(noticeInfo.cardTransform && noticeInfo.cardTransform !== "none", `Expected desktop notice card to be shifted up, got ${noticeInfo.cardTransform}`);
-  await click(client, "[data-action='support-types']");
-  const wrongSupportInfo = await evaluate(client, `(() => {
-    const input = document.querySelector(".first-open-support-password");
-    input.value = "wrong-password";
-    document.querySelector("[data-action='unlock-support']")?.click();
-    return {
-      panelHidden: document.querySelector(".first-open-support-panel")?.hidden ?? true,
-      listHidden: document.querySelector(".first-open-support-list")?.hidden ?? true,
-      status: document.querySelector(".first-open-support-status")?.textContent?.trim() || "",
-      statusClass: document.querySelector(".first-open-support-status")?.className || ""
-    };
-  })()`);
-  assertCondition(wrongSupportInfo.panelHidden === false, `Support panel should be visible ${JSON.stringify(wrongSupportInfo)}`);
-  assertCondition(wrongSupportInfo.listHidden === true, `Support list should stay hidden on wrong password ${JSON.stringify(wrongSupportInfo)}`);
-  assertCondition(wrongSupportInfo.status.includes("密碼錯誤") && wrongSupportInfo.statusClass.includes("is-error"), `Wrong password status mismatch ${JSON.stringify(wrongSupportInfo)}`);
-  const unlockedSupportInfo = await evaluate(client, `(() => {
-    const input = document.querySelector(".first-open-support-password");
-    input.value = "@EClLl*j2hLylZ2I@k3&";
-    document.querySelector("[data-action='unlock-support']")?.click();
-    return {
-      listHidden: document.querySelector(".first-open-support-list")?.hidden ?? true,
-      text: document.querySelector(".first-open-support-list")?.textContent || "",
-      status: document.querySelector(".first-open-support-status")?.textContent?.trim() || "",
-      statusClass: document.querySelector(".first-open-support-status")?.className || ""
-    };
-  })()`);
-  assertCondition(unlockedSupportInfo.listHidden === false, `Support list should be visible ${JSON.stringify(unlockedSupportInfo)}`);
+  assertCondition(noticeInfo.text.includes("使用提醒"), "Daily notice missing 使用提醒 heading");
+  assertCondition(noticeInfo.text.includes("資料均在本地運行，請安心使用。"), "Daily notice missing local processing copy");
+  assertCondition(noticeInfo.text.includes("支援檔案類型：請私訊作者"), "Daily notice missing file-type guidance");
+  assertCondition(noticeInfo.telegramHref === "https://t.me/tg_secbeater", `Unexpected notice Telegram link ${JSON.stringify(noticeInfo)}`);
+  assertCondition(noticeInfo.refreshLabel === "強制重啟", `Unexpected force-reload label ${noticeInfo.refreshLabel}`);
+  assertCondition(noticeInfo.closeExists, "Daily notice missing close button");
+  assertCondition(!noticeInfo.supportPanel, "Password-gated support panel should be removed");
+  assertCondition(!noticeInfo.text.includes("Gemini Pro") && !noticeInfo.text.includes("今日重點"), `Legacy notice copy still present ${JSON.stringify(noticeInfo)}`);
   assertCondition(
-    unlockedSupportInfo.text.includes("警政署智慧分析-車牌辨識系統") &&
-      unlockedSupportInfo.text.includes("警政署智慧分析-高速公路ETC紀錄") &&
-      unlockedSupportInfo.text.includes("irent資料") &&
-      unlockedSupportInfo.text.includes("需要支援其他類型"),
-    `Support list text mismatch ${JSON.stringify(unlockedSupportInfo)}`
+    noticeInfo.cardHrefs[0] === "https://phone.secbeater.com/" &&
+      noticeInfo.cardHrefs[1] === "https://shrimp.secbeater.com/",
+    `Unexpected product card links ${JSON.stringify(noticeInfo.cardHrefs)}`
   );
-  assertCondition(unlockedSupportInfo.statusClass.includes("is-success"), `Support success status mismatch ${JSON.stringify(unlockedSupportInfo)}`);
+  assertCondition(
+    noticeInfo.cardLabels[0] === "通聯資料分析工具" && noticeInfo.cardLabels[1] === "蝦殼分析網站",
+    `Unexpected product card labels ${JSON.stringify(noticeInfo.cardLabels)}`
+  );
+  assertCondition(
+    noticeInfo.imageSrcs[0] === "./static/link-phone-analysis.jpg" &&
+      noticeInfo.imageSrcs[1] === "./static/link-shrimp-analysis.jpg",
+    `Unexpected product card images ${JSON.stringify(noticeInfo.imageSrcs)}`
+  );
+  assertCondition(noticeInfo.titleColor === "rgb(255, 216, 91)", `Unexpected notice title color ${noticeInfo.titleColor}`);
+  assertCondition(noticeInfo.brandHref === "https://secbeater.com/", `Unexpected brand icon link ${noticeInfo.brandHref}`);
   await closeFirstOpenOverlayIfPresent(client);
   await client.send("Page.reload", { ignoreCache: true });
   await sleep(500);

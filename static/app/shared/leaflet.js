@@ -1,4 +1,4 @@
-import { MAP_DEFAULT_VIEW } from "./constants.js?v=20260812a";
+import { MAP_DEFAULT_VIEW } from "./constants.js?v=20260827a";
 
 export function createBaseMap(host, options = {}) {
   if (!host || typeof L === "undefined") return null;

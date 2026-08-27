@@ -1,4 +1,6 @@
-import { renderPlateImageThumbnailHtml } from "./plateImageView.js?v=20260812a";
+import { renderPlateImageThumbnailHtml } from "./plateImageView.js?v=20260827a";
+
+const TIMELINE_SELECT_MAX_OPTIONS = 500;
 
 export function createMainMapView(deps) {
   const {
@@ -420,11 +422,16 @@ function setupTimelineControls(track) {
     els.timelineSlider.max = String(track.length - 1);
     els.timelineSlider.value = "0";
 
-    const options = track
-      .map((p, idx) => `<option value="${idx}">${idx + 1}. ${escapeHtml(p.time)}｜${escapeHtml(p.address || p.area || "未提供")}</option>`)
-      .join("");
-    els.timelineSelect.innerHTML = options;
-    els.timelineSelect.value = "0";
+    if (track.length <= TIMELINE_SELECT_MAX_OPTIONS) {
+      els.timelineSelect.disabled = false;
+      els.timelineSelect.innerHTML = track
+        .map((p, idx) => `<option value="${idx}">${idx + 1}. ${escapeHtml(p.time)}｜${escapeHtml(p.address || p.area || "未提供")}</option>`)
+        .join("");
+      els.timelineSelect.value = "0";
+    } else {
+      els.timelineSelect.innerHTML = `<option value="">筆數較多（${track.length}），請用時間滑桿或指定時間</option>`;
+      els.timelineSelect.disabled = true;
+    }
 
     const firstDt = parseTrackDate(track[0]);
     const lastDt = parseTrackDate(track[track.length - 1]);
@@ -492,7 +499,9 @@ function setupTimelineControls(track) {
     if (!point) return;
 
     els.timelineSlider.value = String(clampedIndex);
-    els.timelineSelect.value = String(clampedIndex);
+    if (!els.timelineSelect.disabled) {
+      els.timelineSelect.value = String(clampedIndex);
+    }
 
     const dt = parseTrackDate(point);
     if (dt) {

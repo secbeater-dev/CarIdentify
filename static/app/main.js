@@ -13,11 +13,14 @@ import {
   OVERNIGHT_MODE_NIGHT,
   PARKING_CLUSTER_RADIUS_M,
   PARKING_SETTINGS_KEY
-} from "./shared/constants.js?v=20260812a";
-import { els } from "./shared/dom.js?v=20260812a";
-import { state } from "./shared/state.js?v=20260812a";
-import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260812a";
-import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260812a";
+} from "./shared/constants.js?v=20260827a";
+import { els } from "./shared/dom.js?v=20260827a";
+import { state } from "./shared/state.js?v=20260827a";
+import { rowsToCsv } from "./shared/utils.js?v=20260827a";
+import { extractPlateImageRecordImages } from "./analysis/workbookFormats.js?v=20260827a";
+import { importWorkbooks, runWorkbookImport } from "./analysis/importClient.js?v=20260827a";
+import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260827a";
+import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260827a";
 import {
   invalidateRoutineMap,
   renderRoutineView,
@@ -25,26 +28,19 @@ import {
   selectAllRoutineDraftHours,
   syncRoutineFilterUi,
   toggleRoutineDraftHour
-} from "./views/routineView.js?v=20260812a";
-import { renderTable } from "./views/tableView.js?v=20260812a";
-import { createParkingView } from "./views/parkingView.js?v=20260812a";
-import { createMainMapView } from "./views/mainMapView.js?v=20260812a";
-import { createAiView } from "./views/aiView.js?v=20260812a";
-import { initPlateImageViewer } from "./views/plateImageView.js?v=20260812a";
-import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260812a";
-import {
-  extractPlateImageRecordImages,
-  parseGpsRecordListMatrix,
-  parsePlateImageRecordMatrix,
-  parsePlateTextRecordMatrix
-} from "./analysis/workbookFormats.js?v=20260812a";
+} from "./views/routineView.js?v=20260827a";
+import { renderTable } from "./views/tableView.js?v=20260827a";
+import { createParkingView } from "./views/parkingView.js?v=20260827a";
+import { createMainMapView } from "./views/mainMapView.js?v=20260827a";
+import { createAiView } from "./views/aiView.js?v=20260827a";
+import { initPlateImageViewer } from "./views/plateImageView.js?v=20260827a";
+import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260827a";
 
 const THEME_COOKIE_NAME = "caridentify-theme";
 const DISQUS_SHORTNAME = "secbeatercom";
 const DISQUS_THREAD_URL = "https://car.secbeater.com/?view=comments";
 const DISQUS_THREAD_IDENTIFIER = "caridentify-comments";
 const DISQUS_THREAD_TITLE = "車輛辨識系統留言板";
-const SUPPORT_TYPES_PASSWORD = "@EClLl*j2hLylZ2I@k3&";
 let disqusLoaded = false;
   function setStatus(message, type) {
     if (!els.status) return;
@@ -328,25 +324,7 @@ let disqusLoaded = false;
     return { min: 10, max: 59, label: "10–59 分鐘" };
   }
 
-  function clearLocalSettingsAndReload() {
-    const clearMatchingKeys = (storage) => {
-      if (!storage) return;
-      for (let i = storage.length - 1; i >= 0; i -= 1) {
-        const key = storage.key(i);
-        if (!key) continue;
-        if (key.startsWith("caridentify-") || key.startsWith("sb-first-open-notice-")) {
-          storage.removeItem(key);
-        }
-      }
-    };
-
-    try {
-      clearMatchingKeys(window.localStorage);
-      clearMatchingKeys(window.sessionStorage);
-    } catch (error) {
-      // Ignore storage failures and continue to reload.
-    }
-
+  function hardReloadLatest() {
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.set("_refresh", String(Date.now()));
     window.location.replace(nextUrl.toString());
@@ -362,42 +340,23 @@ let disqusLoaded = false;
         <div class="first-open-copy">
           <h3>使用提醒</h3>
           <p>資料均在本地運行，請安心使用。</p>
-          <p>任何問題歡迎於 <a href="https://t.me/secbeater" target="_blank" rel="noopener noreferrer">Telegram</a> 中提出。</p>
-          <h4>今日重點（2026-06-25）</h4>
-          <ul class="first-open-changes">
-            <li>新增淺色模式。</li>
-            <li>新增留言板。</li>
-          </ul>
-          <p class="first-open-note">備註：一鍵更新會清除本機設定（地圖/停車/彈窗狀態），並強制重載最新版（等同 Ctrl+F5）。</p>
-          <div class="first-open-support-panel" hidden>
-            <label class="first-open-support-field">
-              <span>支援檔案類型密碼</span>
-              <input type="password" class="first-open-support-password" autocomplete="current-password" placeholder="請輸入密碼">
-            </label>
-            <div class="first-open-support-actions">
-              <button type="button" class="ghost-btn first-open-support-unlock" data-action="unlock-support">確認</button>
-              <span class="first-open-support-status" aria-live="polite">備註：請跟作者索取</span>
-            </div>
-            <div class="first-open-support-list" hidden>
-              <p>支援檔案類型：</p>
-              <ul>
-                <li>警政署智慧分析-車牌辨識系統</li>
-                <li>警政署智慧分析-高速公路ETC紀錄</li>
-                <li>irent資料</li>
-              </ul>
-              <p>備註：需要支援其他類型，歡迎提供檔案給作者</p>
-            </div>
-          </div>
+          <p>支援檔案類型：請私訊作者 <a href="https://t.me/tg_secbeater" target="_blank" rel="noopener noreferrer">https://t.me/tg_secbeater</a></p>
+          <p class="first-open-note">備註：若畫面仍是舊版，請使用強制重載最新版（等同 Ctrl+F5）。</p>
           <div class="first-open-actions">
-            <button type="button" class="ghost-btn first-open-refresh" data-action="refresh">一鍵更新（Ctrl+F5＋清除設定）</button>
-            <button type="button" class="ghost-btn first-open-support-toggle" data-action="support-types">顯示支援檔案類型</button>
+            <button type="button" class="ghost-btn first-open-refresh" data-action="refresh">強制重啟</button>
             <button type="button" class="run-btn first-open-close" data-action="close">我知道了</button>
           </div>
         </div>
-        <a class="first-open-community-card" href="https://t.me/secbeater" target="_blank" rel="noopener noreferrer" aria-label="加入 Telegram">
-          <img src="https://cdn.rafled.com/anime-icons/images/6nuiK8b9XPLt.jpg" alt="Telegram" class="first-open-community-image">
-          <span>一起跟上 AI 時代，讓 Gemini Pro 成為你的效率夥伴。一年會員限量優惠 NT$1,500（原價 NT$8,280），真誠推薦給想提升自己的你。</span>
-        </a>
+        <div class="first-open-product-cards">
+          <a class="first-open-community-card" href="https://phone.secbeater.com/" target="_blank" rel="noopener noreferrer">
+            <img src="./static/link-phone-analysis.jpg" alt="通聯資料分析工具" class="first-open-community-image">
+            <span>通聯資料分析工具</span>
+          </a>
+          <a class="first-open-community-card" href="https://shrimp.secbeater.com/" target="_blank" rel="noopener noreferrer">
+            <img src="./static/link-shrimp-analysis.jpg" alt="蝦殼分析網站" class="first-open-community-image">
+            <span>蝦殼分析網站</span>
+          </a>
+        </div>
       </div>
     `;
 
@@ -423,38 +382,7 @@ let disqusLoaded = false;
       }
     });
     overlay.querySelector("[data-action='close']")?.addEventListener("click", onClose);
-    overlay.querySelector("[data-action='refresh']")?.addEventListener("click", clearLocalSettingsAndReload);
-    overlay.querySelector("[data-action='support-types']")?.addEventListener("click", () => {
-      const panel = overlay.querySelector(".first-open-support-panel");
-      panel.hidden = false;
-      overlay.querySelector(".first-open-support-password")?.focus();
-    });
-
-    const unlockSupportTypes = () => {
-      const passwordInput = overlay.querySelector(".first-open-support-password");
-      const status = overlay.querySelector(".first-open-support-status");
-      const list = overlay.querySelector(".first-open-support-list");
-      if (!passwordInput || !status || !list) return;
-      if (passwordInput.value === SUPPORT_TYPES_PASSWORD) {
-        list.hidden = false;
-        status.textContent = "已顯示支援檔案類型";
-        status.classList.remove("is-error");
-        status.classList.add("is-success");
-        return;
-      }
-      list.hidden = true;
-      status.textContent = "密碼錯誤，請確認後再輸入。";
-      status.classList.remove("is-success");
-      status.classList.add("is-error");
-      passwordInput.select();
-    };
-    overlay.querySelector("[data-action='unlock-support']")?.addEventListener("click", unlockSupportTypes);
-    overlay.querySelector(".first-open-support-password")?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        unlockSupportTypes();
-      }
-    });
+    overlay.querySelector("[data-action='refresh']")?.addEventListener("click", hardReloadLatest);
 
     document.body.appendChild(overlay);
     document.addEventListener("keydown", onEscClose);
@@ -611,841 +539,6 @@ let disqusLoaded = false;
     return total;
   }
 
-  function normalizeHeaderKey(value) {
-    return String(value ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/[\s_\-()/]/g, "");
-  }
-
-  function columnAliases() {
-    return {
-      id: ["編號", "順序", "id", "serial", "序號"],
-      plate: ["車號", "車牌", "plate", "車牌號碼", "牌照號碼"],
-      image: ["牌照圖檔", "image_url", "imageurl"],
-      timestamp: ["時間", "定位時間", "time", "timestamp", "日期時間", "辨識時間", "偵測日期"],
-      coord: ["經緯度", "座標", "坐標", "coordinates", "coordinate", "latlon", "lonlat"],
-      lon: ["經度", "longitude", "lon", "lng", "x"],
-      lat: ["緯度", "latitude", "lat", "y"],
-      source: ["來源", "定位位置", "縣市", "source", "city", "行政區", "國道系統", "行進方向", "門架名稱"],
-      note: ["備註", "地標名稱", "行經道路位置", "地址", "路口", "location", "place", "備考", "門架名稱", "國道系統", "行進方向"]
-    };
-  }
-
-  function detectDatasetFormat(rows) {
-    const sourceRows = Array.isArray(rows) ? rows : [];
-    const keys = [];
-    const seen = new Set();
-    for (const row of sourceRows.slice(0, 30)) {
-      for (const key of Object.keys(row || {})) {
-        if (!seen.has(key)) {
-          seen.add(key);
-          keys.push(normalizeHeaderKey(key));
-        }
-      }
-    }
-    const has = (name) => keys.includes(normalizeHeaderKey(name));
-    const isIdkcityCamera = [
-      "軌跡編號",
-      "攝影機名稱",
-      "車牌",
-      "單位",
-      "日期",
-      "時間",
-      "攝影機",
-      "經度",
-      "緯度"
-    ].every((name) => has(name));
-    if (isIdkcityCamera) {
-      return "idkcity_camera";
-    }
-    const isPlateImageRecord = ["順序", "牌照號碼", "牌照圖檔", "日期時間", "行經道路位置", "座標"]
-      .every((name) => has(name));
-    if (isPlateImageRecord) {
-      return "plate_image_record";
-    }
-    const isPlateTextRecord = !has("牌照圖檔")
-      && ["順序", "牌照號碼", "日期時間", "行經道路位置", "座標"].every((name) => has(name));
-    if (isPlateTextRecord) {
-      return "plate_text_record";
-    }
-    const isCombinedCoordinate = ["編號", "車號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
-    if (isCombinedCoordinate) {
-      return "combined_coordinate";
-    }
-    const hasKnownPlateColumn = ["車牌", "車號", "車牌號碼", "牌照號碼", "plate"].some((name) => has(name));
-    const isAnonymousCoordinateRecord = !hasKnownPlateColumn
-      && ["編號", "時間", "來源", "備註", "經緯度"].every((name) => has(name));
-    if (isAnonymousCoordinateRecord) {
-      return "anonymous_coordinate_record";
-    }
-    const isGpsRecordList = ["車號", "定位時間", "定位位置", "地標名稱", "經度", "緯度"].every((name) => has(name));
-    if (isGpsRecordList) {
-      return "gps_record_list";
-    }
-    const isIrent = ["車號", "GPS時間", "經度", "緯度"].every((name) => has(name));
-    if (isIrent) {
-      return "irent";
-    }
-    if (has("偵測日期") && has("門架名稱") && (has("eTag序號") || has("國道系統") || has("車牌號碼"))) {
-      return "vehicle_recognition";
-    }
-    return "generic";
-  }
-
-  function resolveNormalizedColumns(rows, requiredMap) {
-    const sampleRows = Array.isArray(rows) ? rows.slice(0, 30) : [];
-    const keys = [];
-    const keySet = new Set();
-    for (const row of sampleRows) {
-      Object.keys(row || {}).forEach((key) => {
-        if (!keySet.has(key)) {
-          keySet.add(key);
-          keys.push(key);
-        }
-      });
-    }
-
-    const normalizedMap = new Map();
-    keys.forEach((key) => {
-      normalizedMap.set(normalizeHeaderKey(key), key);
-    });
-
-    const resolved = {};
-    for (const [logicalKey, displayName] of Object.entries(requiredMap)) {
-      const actualKey = normalizedMap.get(normalizeHeaderKey(displayName));
-      if (!actualKey) {
-        throw new Error(`缺少必要欄位: ${displayName}`);
-      }
-      resolved[logicalKey] = actualKey;
-    }
-    return resolved;
-  }
-
-  function extractTimeParts(rawValue) {
-    if (rawValue instanceof Date && !Number.isNaN(rawValue.getTime())) {
-      return {
-        hour: rawValue.getHours(),
-        minute: rawValue.getMinutes(),
-        second: rawValue.getSeconds()
-      };
-    }
-
-    if (typeof rawValue === "number" && Number.isFinite(rawValue) && rawValue >= 0 && rawValue < 1) {
-      const totalSeconds = Math.round(rawValue * 86400);
-      return {
-        hour: Math.floor(totalSeconds / 3600) % 24,
-        minute: Math.floor(totalSeconds / 60) % 60,
-        second: totalSeconds % 60
-      };
-    }
-
-    const raw = String(rawValue ?? "").trim();
-    if (!raw) return null;
-
-    const timeMatch = raw.match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$/);
-    if (timeMatch) {
-      return {
-        hour: Number(timeMatch[1]),
-        minute: Number(timeMatch[2]),
-        second: Number(timeMatch[3] || 0)
-      };
-    }
-
-    const parsed = parseRocDateTime(raw);
-    if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
-      return {
-        hour: parsed.getHours(),
-        minute: parsed.getMinutes(),
-        second: parsed.getSeconds()
-      };
-    }
-    return null;
-  }
-
-  function combineDateAndTime(dateRaw, timeRaw) {
-    const datePart = parseRocDateTime(dateRaw);
-    const timePart = extractTimeParts(timeRaw);
-    if (datePart instanceof Date && !Number.isNaN(datePart.getTime()) && timePart) {
-      return new Date(
-        datePart.getFullYear(),
-        datePart.getMonth(),
-        datePart.getDate(),
-        timePart.hour,
-        timePart.minute,
-        timePart.second
-      );
-    }
-
-    const direct = parseRocDateTime(`${String(dateRaw ?? "").trim()} ${String(timeRaw ?? "").trim()}`.trim());
-    if (direct instanceof Date && !Number.isNaN(direct.getTime())) {
-      return direct;
-    }
-    return null;
-  }
-
-  function parseCoordinatePair(value) {
-    const matches = String(value ?? "").match(/[-+]?\d+(?:\.\d+)?/g);
-    if (!matches || matches.length < 2) {
-      return { lon: NaN, lat: NaN };
-    }
-
-    const first = Number.parseFloat(matches[0]);
-    const second = Number.parseFloat(matches[1]);
-    if (!Number.isFinite(first) || !Number.isFinite(second)) {
-      return { lon: NaN, lat: NaN };
-    }
-
-    const looksLikeTaiwanLon = (num) => num >= 110 && num <= 130;
-    const looksLikeTaiwanLat = (num) => num >= 20 && num <= 30;
-    if (looksLikeTaiwanLon(first) && looksLikeTaiwanLat(second)) {
-      return { lon: first, lat: second };
-    }
-    if (looksLikeTaiwanLat(first) && looksLikeTaiwanLon(second)) {
-      return { lon: second, lat: first };
-    }
-    if (Math.abs(first) > 90 && Math.abs(second) <= 90) {
-      return { lon: first, lat: second };
-    }
-    if (Math.abs(second) > 90 && Math.abs(first) <= 90) {
-      return { lon: second, lat: first };
-    }
-    return { lon: first, lat: second };
-  }
-
-  function looksLikeCoordinatePair(value) {
-    const matches = String(value ?? "").match(/[-+]?\d+(?:\.\d+)?/g);
-    if (!matches || matches.length < 2) return false;
-
-    const first = Number.parseFloat(matches[0]);
-    const second = Number.parseFloat(matches[1]);
-    if (!Number.isFinite(first) || !Number.isFinite(second)) return false;
-
-    const looksLikeTaiwanLon = (num) => num >= 110 && num <= 130;
-    const looksLikeTaiwanLat = (num) => num >= 20 && num <= 30;
-    if (looksLikeTaiwanLon(first) && looksLikeTaiwanLat(second)) return true;
-    if (looksLikeTaiwanLat(first) && looksLikeTaiwanLon(second)) return true;
-    if (Math.abs(first) > 90 && Math.abs(first) <= 180 && Math.abs(second) <= 90) return true;
-    if (Math.abs(second) > 90 && Math.abs(second) <= 180 && Math.abs(first) <= 90) return true;
-    return false;
-  }
-
-  function columnHasCoordinatePairs(rows, key) {
-    if (!key) return false;
-
-    let checked = 0;
-    let matched = 0;
-    for (const row of rows.slice(0, 30)) {
-      const text = String(row?.[key] ?? "").trim();
-      if (!text) continue;
-      checked += 1;
-      if (looksLikeCoordinatePair(text)) matched += 1;
-    }
-    return checked > 0 && matched / checked >= 0.6;
-  }
-
-  function normalizeIdkcityRows(rawRows) {
-    const columns = resolveNormalizedColumns(rawRows, {
-      trackId: "軌跡編號",
-      cameraName: "攝影機名稱",
-      plate: "車牌",
-      unit: "單位",
-      date: "日期",
-      time: "時間",
-      cameraId: "攝影機",
-      lon: "經度",
-      lat: "緯度"
-    });
-
-    const output = rawRows.map((row, idx) => {
-      const cameraIdRaw = row?.[columns.cameraId];
-      const cameraIdNum = Number.parseInt(cameraIdRaw, 10);
-      const lon = toNumber(row?.[columns.lon]);
-      const lat = toNumber(row?.[columns.lat]);
-      const dateRaw = row?.[columns.date];
-      const timeRaw = row?.[columns.time];
-      const timestamp = combineDateAndTime(dateRaw, timeRaw);
-      const source = String(row?.[columns.unit] ?? "").trim() || "未提供";
-      const note = String(row?.[columns.cameraName] ?? "").trim() || source;
-      const timestampRaw = `${String(dateRaw ?? "").trim()} ${String(timeRaw ?? "").trim()}`.trim();
-
-      return {
-        id: Number.isFinite(cameraIdNum) ? cameraIdNum : idx + 1,
-        plate: String(row?.[columns.plate] ?? "").trim(),
-        plate_norm: normalizePlate(row?.[columns.plate]),
-        timestamp_raw: timestampRaw,
-        timestamp,
-        lon,
-        lat,
-        source,
-        note
-      };
-    });
-
-    const parsed = output.filter((row) => row.timestamp instanceof Date && !Number.isNaN(row.timestamp.getTime()));
-    if (!parsed.length) {
-      throw new Error("IDKCity timestamp parsing failed.");
-    }
-    return parsed;
-  }
-
-  function detectColumns(rows) {
-    const sampleRows = rows.slice(0, 30);
-    const keys = [];
-    const keySet = new Set();
-    for (const row of sampleRows) {
-      Object.keys(row || {}).forEach((key) => {
-        if (!keySet.has(key)) {
-          keySet.add(key);
-          keys.push(key);
-        }
-      });
-    }
-
-    const normalizedMap = new Map();
-    keys.forEach((key) => {
-      normalizedMap.set(normalizeHeaderKey(key), key);
-    });
-
-    const selected = {};
-    const aliases = columnAliases();
-    Object.entries(aliases).forEach(([std, aliasList]) => {
-      const normalizedAliases = aliasList.map((a) => normalizeHeaderKey(a));
-      let hit = null;
-
-      for (const alias of normalizedAliases) {
-        if (normalizedMap.has(alias)) {
-          hit = normalizedMap.get(alias);
-          break;
-        }
-      }
-      if (!hit) {
-        for (const key of keys) {
-          if ((std === "lon" || std === "lat") && selected.coord && key === selected.coord) {
-            continue;
-          }
-          const nk = normalizeHeaderKey(key);
-          if (normalizedAliases.some((alias) => nk.includes(alias))) {
-            hit = key;
-            break;
-          }
-        }
-      }
-      if (hit) selected[std] = hit;
-    });
-
-    // Fallback: infer timestamp column from values when header aliases are not reliable.
-    if (!selected.timestamp) {
-      let bestKey = "";
-      let bestScore = -1;
-      for (const key of keys) {
-        let parseOk = 0;
-        let totalNonEmpty = 0;
-        for (const row of sampleRows) {
-          const raw = row?.[key];
-          const text = String(raw ?? "").trim();
-          if (!text) continue;
-          totalNonEmpty += 1;
-          const parsed = parseRocDateTime(text);
-          if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
-            parseOk += 1;
-          }
-        }
-        if (totalNonEmpty === 0) continue;
-        const score = parseOk / totalNonEmpty;
-        if (score > bestScore) {
-          bestScore = score;
-          bestKey = key;
-        }
-      }
-      if (bestKey && bestScore >= 0.6) {
-        selected.timestamp = bestKey;
-      }
-    }
-
-    if (selected.coord && ((selected.lon && selected.lat) || !columnHasCoordinatePairs(sampleRows, selected.coord))) {
-      delete selected.coord;
-    }
-    if (selected.coord) {
-      delete selected.lon;
-      delete selected.lat;
-    }
-
-    const missing = ["plate", "timestamp"].filter((key) => !selected[key]);
-    if (!selected.coord) {
-      if (!selected.lon) missing.push("lon");
-      if (!selected.lat) missing.push("lat");
-    }
-    if (missing.length) {
-      throw new Error(`缺少必要欄位: ${missing.join(", ")}`);
-    }
-    return selected;
-  }
-
-  function median(values) {
-    if (!values.length) return NaN;
-    const arr = values.slice().sort((a, b) => a - b);
-    const mid = Math.floor(arr.length / 2);
-    if (arr.length % 2) return arr[mid];
-    return (arr[mid - 1] + arr[mid]) / 2;
-  }
-
-  function smartSwapCoordinates(rows) {
-    const valid = rows.filter((r) => r.lon > 0 && r.lat > 0);
-    if (!valid.length) return { rows, swapped: false };
-
-    const lonMed = median(valid.map((r) => r.lon));
-    const latMed = median(valid.map((r) => r.lat));
-    const looksSwapped = lonMed >= 20 && lonMed <= 30 && latMed >= 110 && latMed <= 130;
-    if (!looksSwapped) return { rows, swapped: false };
-
-    return {
-      swapped: true,
-      rows: rows.map((row) => ({
-        ...row,
-        lon: row.lat,
-        lat: row.lon
-      }))
-    };
-  }
-
-  function normalizeRows(rawRows) {
-    if (!Array.isArray(rawRows) || rawRows.length === 0) {
-      throw new Error("Input rows are empty.");
-    }
-
-    const datasetFormat = detectDatasetFormat(rawRows);
-    if (datasetFormat === "idkcity_camera") {
-      return normalizeIdkcityRows(rawRows);
-    }
-
-    const sourceRows = datasetFormat === "anonymous_coordinate_record"
-      ? rawRows.map((row) => ({ ...row, "車號": "未提供" }))
-      : rawRows;
-    const selected = detectColumns(sourceRows);
-    const output = sourceRows.map((row, idx) => {
-      const idRaw = selected.id ? row[selected.id] : idx + 1;
-      const idNum = Number.parseInt(idRaw, 10);
-      const coordinatePair = selected.coord ? parseCoordinatePair(row[selected.coord]) : null;
-      const lon = coordinatePair ? coordinatePair.lon : toNumber(row[selected.lon]);
-      const lat = coordinatePair ? coordinatePair.lat : toNumber(row[selected.lat]);
-
-      const sourceRaw = selected.source ? row[selected.source] : "";
-      const noteRaw = selected.note ? row[selected.note] : "";
-      const imageRaw = selected.image ? String(row[selected.image] ?? "").trim() : "";
-      const source = String(sourceRaw ?? "").trim() || "未提供";
-      const note = String(noteRaw ?? "").trim();
-
-      return {
-        id: Number.isFinite(idNum) ? idNum : idx + 1,
-        plate: String(row[selected.plate] ?? "").trim(),
-        plate_norm: normalizePlate(row[selected.plate]),
-        timestamp_raw: row[selected.timestamp],
-        timestamp: parseRocDateTime(row[selected.timestamp]),
-        lon,
-        lat,
-        source,
-        note,
-        ...(selected.image ? { image_url: imageRaw.startsWith("blob:") ? imageRaw : "" } : {})
-      };
-    });
-
-    const parsed = output.filter((r) => r.timestamp instanceof Date && !Number.isNaN(r.timestamp.getTime()));
-    if (!parsed.length) {
-      throw new Error("Timestamp parsing failed.");
-    }
-    return parsed;
-  }
-
-  function clusterPoints(stays, radiusM = 300) {
-    const clusters = [];
-
-    for (const stay of stays) {
-      let assigned = null;
-      for (const cluster of clusters) {
-        const distM = haversineKm(stay.lat, stay.lon, cluster.centerLat, cluster.centerLon) * 1000;
-        if (distM <= radiusM) {
-          assigned = cluster;
-          break;
-        }
-      }
-
-      if (!assigned) {
-        assigned = {
-          centerLat: stay.lat,
-          centerLon: stay.lon,
-          points: [],
-          visits: 0,
-          durationMin: 0,
-          areaCounter: new Map(),
-          addrCounter: new Map()
-        };
-        clusters.push(assigned);
-      }
-
-      assigned.points.push(stay);
-      assigned.visits += 1;
-      assigned.durationMin += stay.duration_min;
-
-      assigned.areaCounter.set(stay.area, (assigned.areaCounter.get(stay.area) || 0) + 1);
-      assigned.addrCounter.set(stay.closest_address, (assigned.addrCounter.get(stay.closest_address) || 0) + 1);
-
-      const w = assigned.visits;
-      assigned.centerLat = (assigned.centerLat * (w - 1) + stay.lat) / w;
-      assigned.centerLon = (assigned.centerLon * (w - 1) + stay.lon) / w;
-    }
-
-    const topEntry = (counterMap) => {
-      let bestKey = "未提供";
-      let bestVal = -1;
-      for (const [key, value] of counterMap.entries()) {
-        if (value > bestVal) {
-          bestVal = value;
-          bestKey = key;
-        }
-      }
-      return bestKey;
-    };
-
-    return clusters
-      .sort((a, b) => {
-        if (b.visits !== a.visits) return b.visits - a.visits;
-        return b.durationMin - a.durationMin;
-      })
-      .map((cluster, idx) => ({
-        rank: idx + 1,
-        cluster_id: idx + 1,
-        visits: cluster.visits,
-        total_duration_min: Number(cluster.durationMin.toFixed(2)),
-        total_duration_hhmm: formatDuration(cluster.durationMin),
-        center_lat: Number(cluster.centerLat.toFixed(6)),
-        center_lon: Number(cluster.centerLon.toFixed(6)),
-        area: topEntry(cluster.areaCounter),
-        closest_address: topEntry(cluster.addrCounter)
-      }));
-  }
-
-  function csvEscape(value) {
-    const text = String(value ?? "");
-    if (/[",\r\n]/.test(text)) {
-      return `"${text.replace(/"/g, "\"\"")}"`;
-    }
-    return text;
-  }
-
-  function rowsToCsv(rows, headers) {
-    if (!rows.length) {
-      return "\uFEFF";
-    }
-    const columns = headers || Object.keys(rows[0]);
-    const lines = [columns.join(",")];
-    for (const row of rows) {
-      lines.push(columns.map((key) => csvEscape(row[key])).join(","));
-    }
-    return `\uFEFF${lines.join("\r\n")}`;
-  }
-
-  function analyzeRecords(rawRows, options = {}) {
-    const strictDistanceTeleport = Boolean(options.strictDistanceTeleport);
-    const hasNormalizedInput = Array.isArray(options.normalizedRows);
-    const skipCleaning = Boolean(options.skipCleaning);
-    const normalDrivingSpeedKmh = normalizeNormalDrivingSpeed(
-      options.normalDrivingSpeedKmh ?? DEFAULT_NORMAL_DRIVING_SPEED_KMH
-    );
-
-    let normalized = hasNormalizedInput ? options.normalizedRows.slice() : normalizeRows(rawRows);
-    normalized.sort((a, b) => {
-      const t = a.timestamp.getTime() - b.timestamp.getTime();
-      if (t !== 0) return t;
-      return a.id - b.id;
-    });
-
-    const plateCount = new Map();
-    for (const row of normalized) {
-      plateCount.set(row.plate_norm, (plateCount.get(row.plate_norm) || 0) + 1);
-    }
-
-    let targetPlate = "";
-    let targetCount = -1;
-    for (const [plate, count] of plateCount.entries()) {
-      if (count > targetCount) {
-        targetCount = count;
-        targetPlate = plate;
-      }
-    }
-
-    normalized = normalized.filter((row) => row.plate_norm === targetPlate);
-    if (normalized.length < 2) {
-      throw new Error("Not enough records after plate filtering.");
-    }
-
-    const swappedInfo = smartSwapCoordinates(normalized);
-    const base = swappedInfo.rows;
-    const anomalies = [];
-
-    const invalidCoordRows = base.filter(
-      (row) => !Number.isFinite(row.lat) || !Number.isFinite(row.lon) || row.lat <= 0 || row.lon <= 0
-    );
-
-    for (const row of invalidCoordRows) {
-      anomalies.push({
-        type: "invalid_coord",
-        time: formatDateTime(row.timestamp),
-        description: `ID ${row.id} invalid coord (${row.lat}, ${row.lon})`
-      });
-    }
-
-    const work = base.filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lon) && row.lat > 0 && row.lon > 0);
-    if (work.length < 2) {
-      throw new Error("Not enough valid coordinates.");
-    }
-
-    const kept = [work[0]];
-    const teleportations = [];
-    let prev = work[0];
-
-    for (let i = 1; i < work.length; i += 1) {
-      const curr = work[i];
-      const dtHour = (curr.timestamp.getTime() - prev.timestamp.getTime()) / 3600000;
-      if (skipCleaning) {
-        kept.push(curr);
-        prev = curr;
-        continue;
-      }
-      if (dtHour <= 0) {
-        anomalies.push({
-          type: "time_reverse",
-          time: formatDateTime(curr.timestamp),
-          description: `ID ${curr.id} skipped due to non-increasing timestamp`
-        });
-        continue;
-      }
-
-      const distKm = haversineKm(prev.lat, prev.lon, curr.lat, curr.lon);
-      const speed = distKm / dtHour;
-      const strictDistanceHit = distKm > 10 && (strictDistanceTeleport || dtHour <= 1.0);
-      const speedHit = speed > 150;
-
-      if (strictDistanceHit || speedHit) {
-        teleportations.push({
-          type: "teleport",
-          time: formatDateTime(curr.timestamp),
-          description: `ID ${prev.id}->${curr.id}, dist ${distKm.toFixed(2)}km, speed ${speed.toFixed(1)}km/h`,
-          distance_km: Number(distKm.toFixed(2)),
-          speed_kmh: Number(speed.toFixed(1)),
-          from: {
-            id: prev.id,
-            lat: prev.lat,
-            lon: prev.lon,
-            time: formatDateTime(prev.timestamp)
-          },
-          to: {
-            id: curr.id,
-            lat: curr.lat,
-            lon: curr.lon,
-            time: formatDateTime(curr.timestamp)
-          }
-        });
-        continue;
-      }
-
-      kept.push(curr);
-      prev = curr;
-    }
-
-    const clean = kept;
-    if (clean.length < 2) {
-      throw new Error("Not enough records after cleaning.");
-    }
-
-    const transitions = [];
-    const stays = [];
-    const overnight = [];
-    let normalSpeedExcluded = 0;
-
-    for (let i = 0; i < clean.length - 1; i += 1) {
-      const a = clean[i];
-      const b = clean[i + 1];
-      const dtMin = (b.timestamp.getTime() - a.timestamp.getTime()) / 60000;
-      if (dtMin <= 0) continue;
-
-      const distM = haversineKm(a.lat, a.lon, b.lat, b.lon) * 1000;
-      const speedKmh = (distM / 1000) / (dtMin / 60);
-      transitions.push({
-        from_id: a.id,
-        to_id: b.id,
-        start_time: formatDateTime(a.timestamp),
-        end_time: formatDateTime(b.timestamp),
-        duration_min: Number(dtMin.toFixed(2)),
-        distance_m: Number(distM.toFixed(1)),
-        speed_kmh: Number(speedKmh.toFixed(2))
-      });
-
-      if (dtMin <= 4) continue;
-      if (distM < 5) continue;
-      if (speedKmh >= normalDrivingSpeedKmh) {
-        normalSpeedExcluded += 1;
-        continue;
-      }
-
-      const nightHours = overlapNightHours(a.timestamp, b.timestamp);
-      const dayHours = overlapDayHours(a.timestamp, b.timestamp);
-      const stay = {
-        start_id: a.id,
-        next_id: b.id,
-        arrive_time: formatDateTime(a.timestamp),
-        leave_time: formatDateTime(b.timestamp),
-        duration_min: Number(dtMin.toFixed(2)),
-        duration_hhmm: formatDuration(dtMin),
-        area: a.source || "未提供",
-        lon: Number(a.lon.toFixed(6)),
-        lat: Number(a.lat.toFixed(6)),
-        closest_address: a.note || a.source || "未提供",
-        distance_to_next_m: Number(distM.toFixed(1)),
-        speed_kmh: Number(speedKmh.toFixed(2)),
-        is_breakpoint_6h: dtMin >= 360,
-        day_overlap_h: Number(dayHours.toFixed(2)),
-        night_overlap_h: Number(nightHours.toFixed(2)),
-        is_overnight: dtMin >= 360 && nightHours >= 1.0,
-        is_daytime_long_stay: dtMin >= 360 && dayHours >= 1.0
-      };
-
-      if (dtMin >= 1440) {
-        stay.stay_type = "長期停放(>=24h)";
-      } else if (dtMin >= 360) {
-        stay.stay_type = "停駐點(>=6h)";
-      } else if (dtMin >= 60) {
-        stay.stay_type = "停留點(1-6h)";
-      } else {
-        stay.stay_type = "停留點(>4m)";
-      }
-
-      stays.push(stay);
-      if (stay.is_overnight) {
-        overnight.push(stay);
-      }
-    }
-
-    const hotspots = clusterPoints(stays, 300).slice(0, 50);
-    const parking60 = stays.filter((s) => s.duration_min >= 60);
-
-    const hourlyCounts = Array(24).fill(0);
-    for (const row of clean) {
-      hourlyCounts[row.timestamp.getHours()] += 1;
-    }
-
-    const summary = {
-      raw_records: base.length,
-      clean_records: clean.length,
-      teleportation_removed: teleportations.length,
-      invalid_coord_removed: invalidCoordRows.length,
-      cleaning_skipped: skipCleaning,
-      normal_speed_threshold_kmh: normalDrivingSpeedKmh,
-      normal_speed_excluded: normalSpeedExcluded,
-      stay_records: stays.length,
-      parking_records: parking60.length,
-      overnight_records: overnight.length,
-      period_start: formatDateTime(clean[0].timestamp),
-      period_end: formatDateTime(clean[clean.length - 1].timestamp),
-      plate_display: targetPlate,
-      coordinate_swapped_fixed: swappedInfo.swapped
-    };
-
-    const mapPayload = {
-      home: {
-        lat: HOME.lat,
-        lon: HOME.lon,
-        radius_m: HOME.radiusM,
-        address: HOME.address
-      },
-      track: clean.map((row) => ({
-        id: row.id,
-        lat: row.lat,
-        lon: row.lon,
-        time: formatDateTime(row.timestamp),
-        area: row.source || "未提供",
-        address: row.note || row.source || "未提供",
-        timestamp_ms: row.timestamp.getTime(),
-        ...(Object.prototype.hasOwnProperty.call(row, "image_url") ? { image_url: row.image_url || "" } : {})
-      })),
-      stays: stays.map((s) => ({
-        start_id: s.start_id,
-        next_id: s.next_id,
-        lat: s.lat,
-        lon: s.lon,
-        arrive_time: s.arrive_time,
-        leave_time: s.leave_time,
-        duration_hhmm: s.duration_hhmm,
-        stay_type: s.stay_type,
-        is_overnight: s.is_overnight,
-        day_overlap_h: s.day_overlap_h,
-        night_overlap_h: s.night_overlap_h,
-        address: s.closest_address,
-        area: s.area
-      })),
-      teleportations,
-      hotspots
-    };
-
-    const stayExportRows = stays.map((s) => ({
-      arrive_time: s.arrive_time,
-      leave_time: s.leave_time,
-      duration: s.duration_hhmm,
-      area: s.area,
-      lon: s.lon,
-      lat: s.lat,
-      address: s.closest_address,
-      type: s.stay_type
-    }));
-
-    const hotspotExportRows = hotspots.map((h) => ({
-      rank: h.rank,
-      area: h.area,
-      address: h.closest_address,
-      visits: h.visits,
-      total_duration: h.total_duration_hhmm,
-      center_lon: h.center_lon,
-      center_lat: h.center_lat
-    }));
-
-    const validationRows = stays.map((s) => ({
-      start_id: s.start_id,
-      next_id: s.next_id,
-      arrive_time: s.arrive_time,
-      leave_time: s.leave_time,
-      duration: s.duration_hhmm,
-      area: s.area,
-      lon: s.lon,
-      lat: s.lat,
-      address: s.closest_address
-    }));
-
-    return {
-      summary,
-      stays,
-      parking_60: parking60,
-      overnight,
-      hotspots,
-      hourly_distribution: hourlyCounts,
-      anomalies: {
-        teleportations,
-        others: anomalies.concat(
-          teleportations.map((t) => ({
-            type: t.type,
-            time: t.time,
-            description: t.description
-          }))
-        )
-      },
-      transitions,
-      map: mapPayload,
-      exports: {
-        stay_csv: rowsToCsv(stayExportRows),
-        hotspot_csv: rowsToCsv(hotspotExportRows),
-        validation_csv: rowsToCsv(validationRows)
-      }
-    };
-  }
   const {
     renderParkingView,
     renderParkingPlaybackSelect,
@@ -1513,22 +606,12 @@ let disqusLoaded = false;
     setStatus
   });
 
-  function renderResult(result, sourceLabel) {
-    state.analysis = result;
-    state.csvExports.stay = result.exports.stay_csv;
-    state.csvExports.hotspot = result.exports.hotspot_csv;
-    state.csvExports.validation = result.exports.validation_csv;
-    stopParkingPlayback({ clearHighlight: true, resetIndex: true });
-    state.parkingPlaybackSequence = [];
-    state.parkingPlaybackMarkerByCluster = new Map();
-    state.parkingMapAutoFitKeys.clear();
-    state.parkingMapUserAdjusted = false;
+  function getActiveViewKey() {
+    return document.querySelector(".menu-item.active")?.dataset.view || "map";
+  }
 
-    renderParkingView(result);
-    renderOvernightPanel(result);
-    renderHotspotsView(result);
-
-    renderTable(els.tableTeleport, result.anomalies.teleportations, [
+  function renderTeleportTable(result) {
+    renderTable(els.tableTeleport, result?.anomalies?.teleportations || [], [
       { key: "time", label: "時間" },
       {
         key: "from",
@@ -1544,9 +627,43 @@ let disqusLoaded = false;
       { key: "speed_kmh", label: "速度(km/h)" },
       { key: "description", label: "描述" }
     ]);
+  }
 
-    renderRoutineView(result);
-    renderMap(result.map);
+  function renderAnalysisView(viewKey, result) {
+    if (!result) return;
+    const key = String(viewKey || "map");
+    if (state.renderedViews.has(key)) return;
+
+    if (key === "map") {
+      renderMap(result.map);
+    } else if (key === "parking") {
+      renderParkingView(result);
+    } else if (key === "overnight") {
+      renderOvernightPanel(result);
+    } else if (key === "hotspots") {
+      renderHotspotsView(result);
+    } else if (key === "routine") {
+      renderRoutineView(result);
+    } else if (key === "anomalies") {
+      renderTeleportTable(result);
+    }
+
+    state.renderedViews.add(key);
+  }
+
+  function renderResult(result, sourceLabel) {
+    state.analysis = result;
+    state.csvExports.stay = "";
+    state.csvExports.hotspot = "";
+    state.csvExports.validation = "";
+    state.renderedViews = new Set();
+    stopParkingPlayback({ clearHighlight: true, resetIndex: true });
+    state.parkingPlaybackSequence = [];
+    state.parkingPlaybackMarkerByCluster = new Map();
+    state.parkingMapAutoFitKeys.clear();
+    state.parkingMapUserAdjusted = false;
+
+    renderAnalysisView(getActiveViewKey(), result);
 
     if (els.exportMenuToggle) {
       els.exportMenuToggle.disabled = false;
@@ -1567,7 +684,8 @@ let disqusLoaded = false;
       "success"
     );
   }
-function downloadTextFile(filename, text, mimeType) {
+
+  function downloadTextFile(filename, text, mimeType) {
     const blob = new Blob([text], { type: mimeType || "text/plain;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -1579,11 +697,15 @@ function downloadTextFile(filename, text, mimeType) {
     URL.revokeObjectURL(url);
   }
 
+  function exportStamp() {
+    const now = new Date();
+    return `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}_${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
+  }
+
   function exportSelectedCsv() {
     if (!els.exportType) return;
     const type = els.exportType.value;
-    const now = new Date();
-    const stamp = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}_${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
+    const stamp = exportStamp();
     if (type === "stay" && state.analysis) {
       const range = getParkingDurationRange(state.parkingSettings);
       const rows = (state.analysis.stays || [])
@@ -1603,23 +725,37 @@ function downloadTextFile(filename, text, mimeType) {
       downloadTextFile(`parking_${rangeTag}_${stamp}.csv`, csv, "text/csv;charset=utf-8;");
       return;
     }
-    if (type === "hotspot" && state.csvExports.hotspot) {
-      downloadTextFile(`hotspots_top50_${stamp}.csv`, state.csvExports.hotspot, "text/csv;charset=utf-8;");
+    if (type === "hotspot" && state.analysis) {
+      const rows = (state.analysis.hotspots || []).map((row) => ({
+        rank: row.rank,
+        area: row.area,
+        address: row.closest_address,
+        visits: row.visits,
+        total_duration: row.total_duration_hhmm,
+        center_lon: row.center_lon,
+        center_lat: row.center_lat
+      }));
+      const csv = rowsToCsv(rows, ["rank", "area", "address", "visits", "total_duration", "center_lon", "center_lat"]);
+      downloadTextFile(`hotspots_top50_${stamp}.csv`, csv, "text/csv;charset=utf-8;");
       return;
     }
-    if (type === "validation" && state.csvExports.validation) {
-      downloadTextFile(`validation_pairs_${stamp}.csv`, state.csvExports.validation, "text/csv;charset=utf-8;");
+    if (type === "validation" && state.analysis) {
+      const rows = (state.analysis.stays || []).map((row) => ({
+        start_id: row.start_id,
+        next_id: row.next_id,
+        arrive_time: row.arrive_time,
+        leave_time: row.leave_time,
+        duration: row.duration_hhmm,
+        area: row.area,
+        lon: row.lon,
+        lat: row.lat,
+        address: row.closest_address
+      }));
+      const csv = rowsToCsv(rows, ["start_id", "next_id", "arrive_time", "leave_time", "duration", "area", "lon", "lat", "address"]);
+      downloadTextFile(`validation_pairs_${stamp}.csv`, csv, "text/csv;charset=utf-8;");
       return;
     }
     setStatus("尚無可匯出資料，請先完成分析。", "error");
-  }
-
-  function collectWorkbookImageUrls(rows) {
-    return Array.from(new Set(
-      (Array.isArray(rows) ? rows : [])
-        .map((row) => String(row?.image_url || row?.["牌照圖檔"] || "").trim())
-        .filter((url) => url.startsWith("blob:"))
-    ));
   }
 
   function revokeWorkbookImageUrls(urls) {
@@ -1640,94 +776,109 @@ function downloadTextFile(filename, text, mimeType) {
     revokeWorkbookImageUrls(previousUrls);
   }
 
-  async function parseWorkbookArrayBuffer(arrayBuffer) {
-    if (typeof XLSX === "undefined") {
-      throw new Error("XLSX parser is not available.");
-    }
-
-    const workbook = XLSX.read(arrayBuffer, { type: "array", cellDates: false });
-    const sheetNames = workbook.SheetNames || [];
-    if (!sheetNames.length) {
-      throw new Error("No worksheet found.");
-    }
-
-    function recoverWorksheetRange(sheet) {
-      const refs = Object.keys(sheet || {}).filter((key) => /^[A-Z]+[0-9]+$/i.test(key));
-      if (!refs.length) return;
-
-      const decoded = refs.map((ref) => XLSX.utils.decode_cell(ref));
-      const recovered = {
-        s: {
-          r: Math.min(...decoded.map((cell) => cell.r)),
-          c: Math.min(...decoded.map((cell) => cell.c))
-        },
-        e: {
-          r: Math.max(...decoded.map((cell) => cell.r)),
-          c: Math.max(...decoded.map((cell) => cell.c))
-        }
-      };
-      const recoveredCellCount = (recovered.e.r - recovered.s.r + 1) * (recovered.e.c - recovered.s.c + 1);
-
-      let currentCellCount = 0;
-      try {
-        const current = sheet["!ref"] ? XLSX.utils.decode_range(sheet["!ref"]) : null;
-        if (current) {
-          currentCellCount = (current.e.r - current.s.r + 1) * (current.e.c - current.s.c + 1);
-        }
-      } catch (error) {
-        currentCellCount = 0;
-      }
-
-      if (!sheet["!ref"] || recoveredCellCount > currentCellCount) {
-        sheet["!ref"] = XLSX.utils.encode_range(recovered);
-      }
-    }
-
-    for (const name of sheetNames) {
-      const sheet = workbook.Sheets[name];
-      recoverWorksheetRange(sheet);
-      const matrix = XLSX.utils.sheet_to_json(sheet, {
-        header: 1,
-        defval: "",
-        raw: false,
-        blankrows: false
-      });
-      const plateImageRecord = parsePlateImageRecordMatrix(matrix);
-      if (plateImageRecord) {
-        const imageUrlByRow = await extractPlateImageRecordImages(arrayBuffer, name, plateImageRecord.rowIndexes);
-        return plateImageRecord.rows.map((row, index) => ({
-          ...row,
-          牌照圖檔: imageUrlByRow.get(plateImageRecord.rowIndexes[index]) || ""
-        }));
-      }
-      const plateTextRows = parsePlateTextRecordMatrix(matrix);
-      if (plateTextRows) {
-        return plateTextRows;
-      }
-      const gpsRows = parseGpsRecordListMatrix(matrix);
-      if (gpsRows) {
-        return gpsRows;
-      }
-      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
-      if (rows.length > 0) {
-        return rows;
-      }
-    }
-    throw new Error("Worksheet has no rows.");
+  function nextPaint() {
+    return new Promise((resolve) => {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+    });
   }
 
-  async function analyzeWithRows(rows, sourceLabel, options = {}) {
-    stopPlayback();
-    setStatus("分析中...", "");
-    const strict = Boolean(els.strictDistance?.checked);
-    const normalDrivingSpeedKmh = getNormalDrivingSpeedFromUi();
-    const result = analyzeRecords(rows, {
-      strictDistanceTeleport: strict,
-      normalizedRows: options.rowsNormalized ? rows : undefined,
-      skipCleaning: Boolean(options.skipCleaning),
-      normalDrivingSpeedKmh
-    });
-    renderResult(result, sourceLabel);
+  function getImportOverlay() {
+    let overlay = document.getElementById("import-progress-overlay");
+    if (overlay) return overlay;
+    overlay = document.createElement("div");
+    overlay.id = "import-progress-overlay";
+    overlay.className = "import-progress-overlay";
+    overlay.hidden = true;
+    overlay.innerHTML = `
+      <div class="import-progress-modal" role="status" aria-live="polite">
+        <div class="import-progress-spinner" aria-hidden="true"></div>
+        <h3>正在處理檔案</h3>
+        <p id="import-progress-message">準備中...</p>
+        <p id="import-progress-hint" class="import-progress-hint" hidden>檔案較大，解析需一些時間，請勿關閉分頁。</p>
+        <div class="import-progress-bar" aria-hidden="true"><span id="import-progress-fill"></span></div>
+        <p id="import-progress-percent">0%</p>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+
+  function setImportProgress(progress = {}) {
+    const overlay = getImportOverlay();
+    const message = overlay.querySelector("#import-progress-message");
+    const hint = overlay.querySelector("#import-progress-hint");
+    const fill = overlay.querySelector("#import-progress-fill");
+    const percentLabel = overlay.querySelector("#import-progress-percent");
+    const percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
+    if (message) message.textContent = progress.message || "處理中...";
+    if (hint) hint.hidden = !progress.largeFile;
+    if (fill) fill.style.width = `${percent}%`;
+    if (percentLabel) percentLabel.textContent = `${percent}%`;
+  }
+
+  function showImportProgress() {
+    const overlay = getImportOverlay();
+    overlay.hidden = false;
+    overlay.classList.add("is-open");
+    setImportProgress({ message: "準備中...", percent: 2 });
+  }
+
+  function hideImportProgress() {
+    const overlay = document.getElementById("import-progress-overlay");
+    if (!overlay) return;
+    overlay.classList.remove("is-open");
+    overlay.hidden = true;
+  }
+
+  function setImportUiBusy(busy) {
+    const submit = els.analyzeForm?.querySelector('button[type="submit"]');
+    if (els.fileInput) els.fileInput.disabled = busy;
+    if (submit) submit.disabled = busy;
+  }
+
+  async function readFilePayloads(fileList) {
+    const payloads = [];
+    const files = Array.from(fileList || []);
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+      setImportProgress({
+        message: `讀取檔案（${index + 1}/${files.length}）：${file.name}`,
+        percent: Math.round((index / Math.max(files.length, 1)) * 8),
+        largeFile: file.size > 15 * 1024 * 1024
+      });
+      payloads.push({
+        name: file.name,
+        buffer: await file.arrayBuffer(),
+        size: file.size
+      });
+    }
+    return payloads;
+  }
+
+  async function attachPlateImages(analysis, plateImageJobs) {
+    const pendingUrls = [];
+    const urlById = new Map();
+    for (const job of Array.isArray(plateImageJobs) ? plateImageJobs : []) {
+      if (!job?.buffer) continue;
+      const imageUrlByRow = await extractPlateImageRecordImages(job.buffer, job.sheetName, job.rowIndexes);
+      const orders = Array.isArray(job.orders) ? job.orders : [];
+      const rowIndexes = Array.isArray(job.rowIndexes) ? job.rowIndexes : [];
+      for (let index = 0; index < rowIndexes.length; index += 1) {
+        const url = imageUrlByRow.get(rowIndexes[index]) || "";
+        if (!url) continue;
+        pendingUrls.push(url);
+        const idNum = Number.parseInt(orders[index], 10);
+        if (Number.isFinite(idNum)) {
+          urlById.set(idNum, url);
+        }
+      }
+    }
+    for (const point of analysis?.map?.track || []) {
+      if (urlById.has(point.id)) {
+        point.image_url = urlById.get(point.id);
+      }
+    }
+    return pendingUrls;
   }
 
   async function handleAnalyzeSubmit(event) {
@@ -1739,35 +890,42 @@ function downloadTextFile(filename, text, mimeType) {
     }
 
     const pendingImageUrls = [];
+    const analysisOptions = {
+      strictDistanceTeleport: Boolean(els.strictDistance?.checked),
+      normalDrivingSpeedKmh: getNormalDrivingSpeedFromUi()
+    };
+    const sourceLabel = files.length === 1 ? files[0].name : `${files.length} 個檔案`;
+
+    showImportProgress();
+    setImportUiBusy(true);
+    await nextPaint();
+    setStatus(`正在載入 ${files.length} 個檔案...`, "");
+
     try {
-      setStatus(`正在載入 ${files.length} 個檔案...`, "");
-      const mergedNormalizedRows = [];
-      const datasetFormats = [];
-      for (const file of files) {
-        try {
-          const buffer = await file.arrayBuffer();
-          const rows = await parseWorkbookArrayBuffer(buffer);
-          pendingImageUrls.push(...collectWorkbookImageUrls(rows));
-          datasetFormats.push(detectDatasetFormat(rows));
-          const normalizedRows = normalizeRows(rows);
-          mergedNormalizedRows.push(...normalizedRows);
-        } catch (error) {
-          throw new Error(`${file.name}：${error.message}`);
-        }
+      stopPlayback();
+      let payloads = await readFilePayloads(files);
+      let imported;
+      try {
+        imported = await runWorkbookImport(payloads, analysisOptions, setImportProgress);
+      } catch (error) {
+        if (!error?.needsReread) throw error;
+        payloads = await readFilePayloads(files);
+        imported = await importWorkbooks(payloads, analysisOptions, setImportProgress);
       }
-      if (mergedNormalizedRows.length < 2) {
-        throw new Error("有效資料不足（至少需要 2 筆有效軌跡）。");
-      }
-      const sourceLabel = files.length === 1 ? files[0].name : `${files.length} 個檔案`;
-      const skipCleaning = datasetFormats.some((format) => format === "vehicle_recognition");
-      await analyzeWithRows(mergedNormalizedRows, sourceLabel, { rowsNormalized: true, skipCleaning });
+
+      setImportProgress({ message: "處理牌照圖片...", percent: 92, largeFile: false });
+      pendingImageUrls.push(...await attachPlateImages(imported.analysis, imported.plateImageJobs));
+      setImportProgress({ message: "繪製畫面...", percent: 96, largeFile: false });
+      renderResult(imported.analysis, sourceLabel);
       replaceWorkbookImageUrls(pendingImageUrls);
     } catch (error) {
       revokeWorkbookImageUrls(pendingImageUrls);
       setStatus(`分析失敗：${error.message}`, "error");
+    } finally {
+      setImportUiBusy(false);
+      hideImportProgress();
     }
   }
-
   function rerenderMapIfReady() {
     if (state.analysis?.map) {
       renderMap(state.analysis.map);
@@ -1880,6 +1038,8 @@ function setActiveView(viewKey) {
     els.views.forEach((view) => {
       view.classList.toggle("active", view.id === `view-${viewKey}`);
     });
+
+    renderAnalysisView(viewKey, state.analysis);
 
     if (viewKey === "map" && state.map) {
       setTimeout(() => state.map.invalidateSize(), 120);

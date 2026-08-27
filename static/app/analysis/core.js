@@ -1,7 +1,7 @@
 import {
   DEFAULT_NORMAL_DRIVING_SPEED_KMH,
   HOME
-} from "../shared/constants.js?v=20260812a";
+} from "../shared/constants.js?v=20260827a";
 import {
   formatDateTime,
   formatDuration,
@@ -12,13 +12,13 @@ import {
   overlapNightHours,
   parseRocDateTime,
   toNumber
-} from "../shared/utils.js?v=20260812a";
+} from "../shared/utils.js?v=20260827a";
 import {
   extractPlateImageRecordImages,
   parseGpsRecordListMatrix,
   parsePlateImageRecordMatrix,
   parsePlateTextRecordMatrix
-} from "./workbookFormats.js?v=20260812a";
+} from "./workbookFormats.js?v=20260827a";
 
 export function normalizeHeaderKey(value) {
   return String(value ?? "")
@@ -558,6 +558,7 @@ export function analyzeRecords(rawRows, options = {}) {
   const strictDistanceTeleport = Boolean(options.strictDistanceTeleport);
   const hasNormalizedInput = Array.isArray(options.normalizedRows);
   const skipCleaning = Boolean(options.skipCleaning);
+  const skipCsvExports = Boolean(options.skipCsvExports);
   const normalDrivingSpeedKmh = normalizeNormalDrivingSpeed(
     options.normalDrivingSpeedKmh ?? DEFAULT_NORMAL_DRIVING_SPEED_KMH
   );
@@ -796,38 +797,44 @@ export function analyzeRecords(rawRows, options = {}) {
     hotspots
   };
 
-  const stayExportRows = stays.map((s) => ({
-    arrive_time: s.arrive_time,
-    leave_time: s.leave_time,
-    duration: s.duration_hhmm,
-    area: s.area,
-    lon: s.lon,
-    lat: s.lat,
-    address: s.closest_address,
-    type: s.stay_type
-  }));
+  const stayExportRows = skipCsvExports
+    ? []
+    : stays.map((s) => ({
+      arrive_time: s.arrive_time,
+      leave_time: s.leave_time,
+      duration: s.duration_hhmm,
+      area: s.area,
+      lon: s.lon,
+      lat: s.lat,
+      address: s.closest_address,
+      type: s.stay_type
+    }));
 
-  const hotspotExportRows = hotspots.map((h) => ({
-    rank: h.rank,
-    area: h.area,
-    address: h.closest_address,
-    visits: h.visits,
-    total_duration: h.total_duration_hhmm,
-    center_lon: h.center_lon,
-    center_lat: h.center_lat
-  }));
+  const hotspotExportRows = skipCsvExports
+    ? []
+    : hotspots.map((h) => ({
+      rank: h.rank,
+      area: h.area,
+      address: h.closest_address,
+      visits: h.visits,
+      total_duration: h.total_duration_hhmm,
+      center_lon: h.center_lon,
+      center_lat: h.center_lat
+    }));
 
-  const validationRows = stays.map((s) => ({
-    start_id: s.start_id,
-    next_id: s.next_id,
-    arrive_time: s.arrive_time,
-    leave_time: s.leave_time,
-    duration: s.duration_hhmm,
-    area: s.area,
-    lon: s.lon,
-    lat: s.lat,
-    address: s.closest_address
-  }));
+  const validationRows = skipCsvExports
+    ? []
+    : stays.map((s) => ({
+      start_id: s.start_id,
+      next_id: s.next_id,
+      arrive_time: s.arrive_time,
+      leave_time: s.leave_time,
+      duration: s.duration_hhmm,
+      area: s.area,
+      lon: s.lon,
+      lat: s.lat,
+      address: s.closest_address
+    }));
 
   return {
     summary,
@@ -848,19 +855,23 @@ export function analyzeRecords(rawRows, options = {}) {
     },
     transitions,
     map: mapPayload,
-    exports: {
-      stay_csv: rowsToCsv(stayExportRows),
-      hotspot_csv: rowsToCsv(hotspotExportRows),
-      validation_csv: rowsToCsv(validationRows)
-    }
+    exports: skipCsvExports
+      ? { stay_csv: "", hotspot_csv: "", validation_csv: "" }
+      : {
+        stay_csv: rowsToCsv(stayExportRows),
+        hotspot_csv: rowsToCsv(hotspotExportRows),
+        validation_csv: rowsToCsv(validationRows)
+      }
   };
 }
 
-export async function parseWorkbookArrayBuffer(arrayBuffer) {
+export async function parseWorkbookArrayBuffer(arrayBuffer, options = {}) {
   if (typeof XLSX === "undefined") {
     throw new Error("XLSX parser is not available.");
   }
 
+  const attachPlateImages = options.attachPlateImages !== false;
+  const meta = options.meta && typeof options.meta === "object" ? options.meta : null;
   const workbook = XLSX.read(arrayBuffer, { type: "array", cellDates: false });
   const sheetNames = workbook.SheetNames || [];
   if (!sheetNames.length) {
@@ -910,6 +921,16 @@ export async function parseWorkbookArrayBuffer(arrayBuffer) {
     });
     const plateImageRecord = parsePlateImageRecordMatrix(matrix);
     if (plateImageRecord) {
+      if (meta) {
+        meta.plateImage = {
+          sheetName: name,
+          rowIndexes: plateImageRecord.rowIndexes.slice(),
+          orders: plateImageRecord.rows.map((row) => row["順序"])
+        };
+      }
+      if (!attachPlateImages) {
+        return plateImageRecord.rows;
+      }
       const imageUrlByRow = await extractPlateImageRecordImages(arrayBuffer, name, plateImageRecord.rowIndexes);
       return plateImageRecord.rows.map((row, index) => ({
         ...row,
