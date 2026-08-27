@@ -297,10 +297,10 @@ const THEME_COOKIE_NAME = "caridentify-theme";
     overlay.innerHTML = `
       <div class="first-open-modal first-open-welcome-modal">
         <div class="first-open-copy">
-          <h3>使用提醒</h3>
-          <p>資料均在本地運行，請安心使用。</p>
-          <p>支援檔案類型：請私訊<a href="https://t.me/tg_secbeater" target="_blank" rel="noopener noreferrer">作者</a></p>
-          <p class="first-open-note">備註：若畫面仍是舊版，請使用強制重載最新版（等同 Ctrl+F5）。</p>
+          <p class="first-open-eyebrow">使用提醒</p>
+          <h2>資料均在本地運行，請安心使用。</h2>
+          <p class="first-open-support">支援檔案類型：請私訊<a href="https://t.me/tg_secbeater" target="_blank" rel="noopener noreferrer">作者</a></p>
+          <p>備註：若畫面仍是舊版，請使用強制重載最新版（等同 Ctrl+F5）。</p>
           <div class="first-open-actions">
             <button type="button" class="ghost-btn first-open-refresh" data-action="refresh">強制重啟</button>
             <button type="button" class="run-btn first-open-close" data-action="close">我知道了</button>

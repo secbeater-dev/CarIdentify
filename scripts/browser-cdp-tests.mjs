@@ -1167,7 +1167,12 @@ async function testStartup(client) {
           const img = card.querySelector("img");
           return img ? getComputedStyle(img).objectFit : "";
         }),
-        titleColor: overlay ? getComputedStyle(overlay.querySelector('.first-open-modal h3')).color : "",
+        titleColor: overlay ? getComputedStyle(overlay.querySelector('.first-open-copy h2')).color : "",
+        titleSize: overlay ? getComputedStyle(overlay.querySelector('.first-open-copy h2')).fontSize : "",
+        eyebrow: overlay?.querySelector('.first-open-eyebrow')?.textContent?.trim() || "",
+        eyebrowSize: overlay ? getComputedStyle(overlay.querySelector('.first-open-eyebrow')).fontSize : "",
+        closeBackground: overlay ? getComputedStyle(overlay.querySelector('[data-action="close"]')).backgroundImage : "",
+        refreshBackground: overlay ? getComputedStyle(overlay.querySelector('[data-action="refresh"]')).backgroundColor : "",
         brandHref: document.querySelector(".brand-icon-link")?.href || ""
       };
     })()`);
@@ -1201,7 +1206,18 @@ async function testStartup(client) {
     noticeInfo.imageFit.every((fit) => fit === "contain"),
     `Expected product images to use object-fit contain, got ${JSON.stringify(noticeInfo.imageFit)}`
   );
-  assertCondition(noticeInfo.titleColor === "rgb(255, 216, 91)", `Unexpected notice title color ${noticeInfo.titleColor}`);
+  assertCondition(noticeInfo.eyebrow === "使用提醒", `Expected eyebrow 使用提醒, got ${noticeInfo.eyebrow}`);
+  assertCondition(Number.parseFloat(noticeInfo.eyebrowSize) <= 13, `Expected small eyebrow, got ${noticeInfo.eyebrowSize}`);
+  assertCondition(noticeInfo.titleColor === "rgb(255, 255, 255)", `Unexpected notice title color ${noticeInfo.titleColor}`);
+  assertCondition(Number.parseFloat(noticeInfo.titleSize) >= 28, `Unexpected notice title size ${noticeInfo.titleSize}`);
+  assertCondition(
+    String(noticeInfo.closeBackground || "").includes("239, 35, 35"),
+    `Expected red confirm button, got ${noticeInfo.closeBackground}`
+  );
+  assertCondition(
+    String(noticeInfo.refreshBackground || "").includes("255, 255, 255"),
+    `Expected ghost reload button, got ${noticeInfo.refreshBackground}`
+  );
   assertCondition(noticeInfo.brandHref === "https://secbeater.com/", `Unexpected brand icon link ${noticeInfo.brandHref}`);
   await closeFirstOpenOverlayIfPresent(client);
   await client.send("Page.reload", { ignoreCache: true });

@@ -2543,8 +2543,37 @@ html[data-theme="light"] .overnight-mode-tab.is-active.is-day {
 
 .first-open-copy {
   display: grid;
-  gap: 10px;
+  align-content: start;
+  gap: 0.9rem;
   min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.first-open-eyebrow {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1.65;
+  text-transform: uppercase;
+}
+
+.first-open-welcome-modal .first-open-copy p.first-open-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1.65;
+  text-transform: uppercase;
+}
+
+.first-open-welcome-modal .first-open-copy h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1.18;
 }
 
 .first-open-modal h3 {
@@ -2566,6 +2595,16 @@ html[data-theme="light"] .first-open-modal h3 {
   font-size: 16px;
   line-height: 1.6;
   color: #ededed;
+}
+
+.first-open-welcome-modal .first-open-copy p {
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.65;
+}
+
+.first-open-welcome-modal .first-open-copy a {
+  color: #fff;
+  font-weight: 850;
 }
 
 .first-open-modal h4 {
@@ -2700,6 +2739,60 @@ html[data-theme="light"] .first-open-modal h3 {
 
 .first-open-welcome-modal .first-open-actions {
   justify-content: flex-start;
+  gap: 10px;
+  margin-top: 0.2rem;
+}
+
+.first-open-welcome-modal .first-open-actions button {
+  min-height: 42px;
+  min-width: 0;
+  border-radius: 8px;
+  padding: 0.68rem 1rem;
+  font-size: 16px;
+  font-weight: 850;
+}
+
+.first-open-welcome-modal .first-open-refresh {
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.first-open-welcome-modal .first-open-refresh:hover,
+.first-open-welcome-modal .first-open-refresh:focus-visible {
+  border-color: rgba(239, 35, 35, 0.9);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(239, 35, 35, 0.22);
+}
+
+.first-open-welcome-modal .first-open-close {
+  justify-self: unset;
+  min-width: 0;
+  color: #fff;
+  border-color: rgba(239, 35, 35, 0.7);
+  background: linear-gradient(180deg, #ef2323, #9f1111);
+}
+
+html[data-theme="light"] .first-open-welcome-modal .first-open-copy h2,
+html[data-theme="light"] .first-open-welcome-modal .first-open-copy a {
+  color: #fff;
+}
+
+html[data-theme="light"] .first-open-welcome-modal .first-open-eyebrow,
+html[data-theme="light"] .first-open-welcome-modal .first-open-copy p {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+html[data-theme="light"] .first-open-welcome-modal .first-open-refresh {
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="light"] .first-open-welcome-modal .first-open-close {
+  color: #fff;
+  border-color: rgba(239, 35, 35, 0.7);
+  background: linear-gradient(180deg, #ef2323, #9f1111);
 }
 
 .first-open-product-cards {
