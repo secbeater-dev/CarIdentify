@@ -3,8 +3,8 @@ import {
   detectDatasetFormat,
   normalizeRows,
   parseWorkbookArrayBuffer
-} from "./core.js?v=20260827a";
-import { LARGE_IMPORT_FILE_BYTES } from "../shared/constants.js?v=20260827a";
+} from "./core.js?v=20260827b";
+import { LARGE_IMPORT_FILE_BYTES } from "../shared/constants.js?v=20260827b";
 
 function fileByteLength(file) {
   if (Number.isFinite(file?.size)) return Number(file.size);

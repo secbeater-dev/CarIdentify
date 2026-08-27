@@ -4,7 +4,7 @@ importScripts(
   "../../vendor/fflate-0.8.2.min.js"
 );
 
-const PIPELINE_URL = new URL("./importPipeline.js?v=20260827a", self.location.href).href;
+const PIPELINE_URL = new URL("./importPipeline.js?v=20260827b", self.location.href).href;
 
 self.onmessage = async (event) => {
   const payload = event.data || {};

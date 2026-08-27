@@ -1,4 +1,4 @@
-import { renderPlateImageThumbnailHtml } from "./plateImageView.js?v=20260827a";
+import { renderPlateImageThumbnailHtml } from "./plateImageView.js?v=20260827b";
 
 const TIMELINE_SELECT_MAX_OPTIONS = 500;
 

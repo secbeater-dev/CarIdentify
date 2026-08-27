@@ -30,7 +30,7 @@ const anonymousCoordinateDir = args["anonymous-coordinate-dir"]
   : "";
 const timeoutMs = Number(args.timeout || 30000);
 const requestedCase = args.case ? String(args.case) : "";
-const MODULE_VERSION = "20260827a";
+const MODULE_VERSION = "20260827b";
 
 function isSensitiveCaseName(name) {
   const value = String(name || "");
@@ -1156,12 +1156,17 @@ async function testStartup(client) {
         exists: Boolean(overlay),
         text: overlay?.textContent || "",
         telegramHref: overlay?.querySelector('.first-open-copy a[href="https://t.me/tg_secbeater"]')?.href || "",
+        telegramLabel: overlay?.querySelector('.first-open-copy a[href="https://t.me/tg_secbeater"]')?.textContent?.trim() || "",
         refreshLabel: overlay?.querySelector('[data-action="refresh"]')?.textContent?.trim() || "",
         closeExists: Boolean(overlay?.querySelector('[data-action="close"]')),
         supportPanel: Boolean(overlay?.querySelector('.first-open-support-panel')),
         cardHrefs: cards.map((card) => card.href),
         cardLabels: cards.map((card) => card.querySelector("span")?.textContent?.trim() || ""),
         imageSrcs: cards.map((card) => card.querySelector("img")?.getAttribute("src") || ""),
+        imageFit: cards.map((card) => {
+          const img = card.querySelector("img");
+          return img ? getComputedStyle(img).objectFit : "";
+        }),
         titleColor: overlay ? getComputedStyle(overlay.querySelector('.first-open-modal h3')).color : "",
         brandHref: document.querySelector(".brand-icon-link")?.href || ""
       };
@@ -1171,7 +1176,9 @@ async function testStartup(client) {
   assertCondition(noticeInfo.text.includes("使用提醒"), "Daily notice missing 使用提醒 heading");
   assertCondition(noticeInfo.text.includes("資料均在本地運行，請安心使用。"), "Daily notice missing local processing copy");
   assertCondition(noticeInfo.text.includes("支援檔案類型：請私訊作者"), "Daily notice missing file-type guidance");
+  assertCondition(!noticeInfo.text.includes("t.me/tg_secbeater"), "Daily notice should not display Telegram URL text");
   assertCondition(noticeInfo.telegramHref === "https://t.me/tg_secbeater", `Unexpected notice Telegram link ${JSON.stringify(noticeInfo)}`);
+  assertCondition(noticeInfo.telegramLabel === "作者", `Expected Telegram link text 作者, got ${noticeInfo.telegramLabel}`);
   assertCondition(noticeInfo.refreshLabel === "強制重啟", `Unexpected force-reload label ${noticeInfo.refreshLabel}`);
   assertCondition(noticeInfo.closeExists, "Daily notice missing close button");
   assertCondition(!noticeInfo.supportPanel, "Password-gated support panel should be removed");
@@ -1189,6 +1196,10 @@ async function testStartup(client) {
     noticeInfo.imageSrcs[0] === "./static/link-phone-analysis.jpg" &&
       noticeInfo.imageSrcs[1] === "./static/link-shrimp-analysis.jpg",
     `Unexpected product card images ${JSON.stringify(noticeInfo.imageSrcs)}`
+  );
+  assertCondition(
+    noticeInfo.imageFit.every((fit) => fit === "contain"),
+    `Expected product images to use object-fit contain, got ${JSON.stringify(noticeInfo.imageFit)}`
   );
   assertCondition(noticeInfo.titleColor === "rgb(255, 216, 91)", `Unexpected notice title color ${noticeInfo.titleColor}`);
   assertCondition(noticeInfo.brandHref === "https://secbeater.com/", `Unexpected brand icon link ${noticeInfo.brandHref}`);
@@ -1213,15 +1224,16 @@ async function testStartup(client) {
     "#table-routine",
     "#file-input",
     "#theme-toggle",
-    "#view-comments",
-    "#disqus_thread"
+    "#view-ai",
+    "#ai-prompt",
+    "#copy-ai-prompt"
   ];
   for (const selector of selectors) {
     const exists = await evaluate(client, `Boolean(document.querySelector(${valueLiteral(selector)}))`);
     assertCondition(exists, `Missing selector ${selector}`);
   }
   const menuCount = await evaluate(client, `document.querySelectorAll('.menu-item').length`);
-  assertCondition(menuCount === 8, `Expected 8 menu items, got ${menuCount}`);
+  assertCondition(menuCount === 7, `Expected 7 menu items, got ${menuCount}`);
 
   const initialTheme = await evaluate(client, `document.documentElement.dataset.theme`);
   assertCondition(initialTheme === "light", `Expected default light theme, got ${initialTheme}`);
@@ -1275,35 +1287,23 @@ async function testStartup(client) {
   assertCondition(lightInfo.theme === "light", `Expected light theme after toggle, got ${JSON.stringify(lightInfo)}`);
   assertCondition(String(lightInfo.cookie || "").includes("caridentify-theme=light"), `Expected light theme cookie, got ${JSON.stringify(lightInfo)}`);
 
-  await ensureView(client, "comments");
-  const commentsInfo = await waitFor(client, "comments view and Disqus script", async () => {
-    const info = await evaluate(client, `(() => ({
-      active: document.querySelector("#view-comments")?.classList.contains("active") || false,
-      script: document.querySelector("#dsq-embed-scr")?.src || "",
-      telegramHref: document.querySelector(".comments-community-link")?.href || "",
-      disqusPage: (() => {
-        if (typeof window.disqus_config !== "function") return null;
-        const ctx = { page: {} };
-        window.disqus_config.call(ctx);
-        return ctx.page;
-      })()
-    }))()`);
-    return info?.active && info.script.includes(".disqus.com/embed.js") ? info : null;
-  }, { timeout: 8000, interval: 250 });
-  assertCondition(commentsInfo.script.includes("secbeatercom.disqus.com/embed.js"), `Unexpected Disqus script ${commentsInfo.script}`);
-  assertCondition(commentsInfo.telegramHref === "https://t.me/secbeater", `Unexpected comments Telegram link ${commentsInfo.telegramHref}`);
-  assertCondition(commentsInfo.disqusPage?.url === "https://car.secbeater.com/?view=comments", `Unexpected Disqus page URL ${JSON.stringify(commentsInfo.disqusPage)}`);
-  assertCondition(commentsInfo.disqusPage?.identifier === "caridentify-comments", `Unexpected Disqus identifier ${JSON.stringify(commentsInfo.disqusPage)}`);
   await ensureView(client, "ai");
-  const aiCardInfo = await evaluate(client, `(() => {
-    const card = document.querySelector(".ai-service-card");
-    return {
-      text: card?.textContent || "",
-      hrefs: Array.from(card?.querySelectorAll("a") || []).map((link) => link.href)
-    };
-  })()`);
-  assertCondition(!aiCardInfo.text.includes("SecBeater 群組") && !aiCardInfo.text.includes("歡迎聯繫"), `AI service card still contains group copy: ${JSON.stringify(aiCardInfo)}`);
-  assertCondition(!aiCardInfo.hrefs.some((href) => href.includes("line.me/ti/g2")), `AI service card still contains LINE link: ${JSON.stringify(aiCardInfo)}`);
+  const aiInfo = await evaluate(client, `(() => ({
+    heading: document.querySelector("#view-ai h2")?.textContent?.trim() || "",
+    promptExists: Boolean(document.querySelector("#ai-prompt")),
+    copyLabel: document.querySelector("#copy-ai-prompt")?.textContent?.trim() || "",
+    safety: document.querySelector(".ai-safety-note")?.textContent || "",
+    serviceCard: Boolean(document.querySelector(".ai-service-card")),
+    apiKey: Boolean(document.querySelector("#ai-api-key")),
+    runGemini: Boolean(document.querySelector("#run-ai-analysis")),
+    commentsView: Boolean(document.querySelector("#view-comments")),
+    commentsMenu: Boolean(document.querySelector('.menu-item[data-view="comments"]'))
+  }))()`);
+  assertCondition(aiInfo.heading === "AI 分析", `Unexpected AI heading ${aiInfo.heading}`);
+  assertCondition(aiInfo.promptExists && aiInfo.copyLabel === "複製提示詞", `AI prompt/copy missing ${JSON.stringify(aiInfo)}`);
+  assertCondition(aiInfo.safety.includes("慣用的 AI") && aiInfo.safety.includes("資料"), `Missing AI safety note ${JSON.stringify(aiInfo)}`);
+  assertCondition(!aiInfo.serviceCard && !aiInfo.apiKey && !aiInfo.runGemini, `Gemini extras still present ${JSON.stringify(aiInfo)}`);
+  assertCondition(!aiInfo.commentsView && !aiInfo.commentsMenu, `Comments view should be removed ${JSON.stringify(aiInfo)}`);
   await ensureView(client, "map");
 }
 

@@ -11,7 +11,6 @@ export const MAP_DEFAULT_VIEW = {
   zoom: 13
 };
 
-export const GEMINI_ENDPOINT_DEFAULT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
 export const FIRST_OPEN_NOTICE_KEY = "sb-first-open-notice-20260408-update-a";
 export const MAP_SETTINGS_KEY = "caridentify-map-settings";
 export const PARKING_SETTINGS_KEY = "caridentify-parking-settings";
@@ -46,7 +45,7 @@ export const MAX_NORMAL_DRIVING_SPEED_KMH = 150;
 export const PARKING_CLUSTER_RADIUS_M = 100;
 export const TIMELINE_SELECT_MAX_OPTIONS = 500;
 export const LARGE_IMPORT_FILE_BYTES = 15 * 1024 * 1024;
-export const ASSET_VERSION = "20260827a";
+export const ASSET_VERSION = "20260827b";
 
 export const DEFAULT_ROUTINE_FILTER = {
   selectedHours: Array.from({ length: 24 }, (_, hour) => hour)

@@ -80,14 +80,6 @@ export const els = {
   exportMenu: document.getElementById("export-menu"),
   exportType: document.getElementById("export-type"),
   exportDownload: document.getElementById("export-download"),
-  aiEndpointUrl: document.getElementById("ai-endpoint-url"),
-  aiEndpointPreview: document.getElementById("ai-endpoint-preview"),
-  aiApiKey: document.getElementById("ai-api-key"),
-  aiModelSelect: document.getElementById("ai-model-select"),
-  refreshModels: document.getElementById("refresh-models"),
-  aiModelCustom: document.getElementById("ai-model-custom"),
   aiPrompt: document.getElementById("ai-prompt"),
-  runAiAnalysis: document.getElementById("run-ai-analysis"),
-  aiOutput: document.getElementById("ai-output"),
-  disqusThread: document.getElementById("disqus_thread")
+  copyAiPrompt: document.getElementById("copy-ai-prompt")
 };

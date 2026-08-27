@@ -7,7 +7,7 @@ import {
   MAX_NORMAL_DRIVING_SPEED_KMH,
   MIN_NORMAL_DRIVING_SPEED_KMH,
   PARKING_SETTINGS_KEY
-} from "./constants.js?v=20260827a";
+} from "./constants.js?v=20260827b";
 
 export function pad2(value) {
   return String(value).padStart(2, "0");

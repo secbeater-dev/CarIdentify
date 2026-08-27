@@ -1,6 +1,6 @@
-import { importWorkbooks } from "./importPipeline.js?v=20260827a";
+import { importWorkbooks } from "./importPipeline.js?v=20260827b";
 
-const WORKER_URL = new URL("./importWorker.js?v=20260827a", import.meta.url);
+const WORKER_URL = new URL("./importWorker.js?v=20260827b", import.meta.url);
 
 function buffersWereTransferred(files) {
   return (Array.isArray(files) ? files : []).some(

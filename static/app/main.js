@@ -3,7 +3,6 @@ import {
   DEFAULT_MAP_SETTINGS,
   DEFAULT_NORMAL_DRIVING_SPEED_KMH,
   DEFAULT_PARKING_SETTINGS,
-  GEMINI_ENDPOINT_DEFAULT,
   HOME,
   MAP_DEFAULT_VIEW,
   MAP_SETTINGS_KEY,
@@ -13,14 +12,14 @@ import {
   OVERNIGHT_MODE_NIGHT,
   PARKING_CLUSTER_RADIUS_M,
   PARKING_SETTINGS_KEY
-} from "./shared/constants.js?v=20260827a";
-import { els } from "./shared/dom.js?v=20260827a";
-import { state } from "./shared/state.js?v=20260827a";
-import { rowsToCsv } from "./shared/utils.js?v=20260827a";
-import { extractPlateImageRecordImages } from "./analysis/workbookFormats.js?v=20260827a";
-import { importWorkbooks, runWorkbookImport } from "./analysis/importClient.js?v=20260827a";
-import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260827a";
-import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260827a";
+} from "./shared/constants.js?v=20260827b";
+import { els } from "./shared/dom.js?v=20260827b";
+import { state } from "./shared/state.js?v=20260827b";
+import { rowsToCsv } from "./shared/utils.js?v=20260827b";
+import { extractPlateImageRecordImages } from "./analysis/workbookFormats.js?v=20260827b";
+import { importWorkbooks, runWorkbookImport } from "./analysis/importClient.js?v=20260827b";
+import { renderOvernightView as renderOvernightPanel, invalidateOvernightMap, updateOvernightModeUi as syncOvernightModeUi } from "./views/overnightView.js?v=20260827b";
+import { renderHotspotsView, invalidateHotspotsMap } from "./views/hotspotsView.js?v=20260827b";
 import {
   invalidateRoutineMap,
   renderRoutineView,
@@ -28,20 +27,15 @@ import {
   selectAllRoutineDraftHours,
   syncRoutineFilterUi,
   toggleRoutineDraftHour
-} from "./views/routineView.js?v=20260827a";
-import { renderTable } from "./views/tableView.js?v=20260827a";
-import { createParkingView } from "./views/parkingView.js?v=20260827a";
-import { createMainMapView } from "./views/mainMapView.js?v=20260827a";
-import { createAiView } from "./views/aiView.js?v=20260827a";
-import { initPlateImageViewer } from "./views/plateImageView.js?v=20260827a";
-import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260827a";
+} from "./views/routineView.js?v=20260827b";
+import { renderTable } from "./views/tableView.js?v=20260827b";
+import { createParkingView } from "./views/parkingView.js?v=20260827b";
+import { createMainMapView } from "./views/mainMapView.js?v=20260827b";
+import { createAiView } from "./views/aiView.js?v=20260827b";
+import { initPlateImageViewer } from "./views/plateImageView.js?v=20260827b";
+import { normalizeRoutineFilter } from "./analysis/timeFilters.js?v=20260827b";
 
 const THEME_COOKIE_NAME = "caridentify-theme";
-const DISQUS_SHORTNAME = "secbeatercom";
-const DISQUS_THREAD_URL = "https://car.secbeater.com/?view=comments";
-const DISQUS_THREAD_IDENTIFIER = "caridentify-comments";
-const DISQUS_THREAD_TITLE = "車輛辨識系統留言板";
-let disqusLoaded = false;
   function setStatus(message, type) {
     if (!els.status) return;
     els.status.textContent = message;
@@ -57,18 +51,6 @@ let disqusLoaded = false;
 
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
-  }
-
-  function debounce(fn, delayMs) {
-    let timer = null;
-    return (...args) => {
-      if (timer) {
-        clearTimeout(timer);
-      }
-      timer = setTimeout(() => {
-        fn(...args);
-      }, delayMs);
-    };
   }
 
   function loadStorageJson(key, fallback) {
@@ -147,29 +129,6 @@ let disqusLoaded = false;
   function toggleTheme() {
     const current = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
     applyTheme(current === "dark" ? "light" : "dark");
-  }
-
-  function loadDisqusComments() {
-    const disqusThread = els.disqusThread || document.getElementById("disqus_thread");
-    if (disqusLoaded || !disqusThread || !DISQUS_SHORTNAME) return;
-    disqusLoaded = true;
-    window.disqus_config = function () {
-      this.page.url = DISQUS_THREAD_URL;
-      this.page.identifier = DISQUS_THREAD_IDENTIFIER;
-      this.page.title = DISQUS_THREAD_TITLE;
-      this.language = "zh_TW";
-    };
-    const script = document.createElement("script");
-    script.src = `https://${DISQUS_SHORTNAME}.disqus.com/embed.js`;
-    script.id = "dsq-embed-scr";
-    script.setAttribute("data-timestamp", String(Date.now()));
-    script.async = true;
-    script.onerror = () => {
-      if (disqusThread) {
-        disqusThread.innerHTML = '<div class="comments-placeholder is-error">留言板暫時無法載入，請稍後再試。</div>';
-      }
-    };
-    (document.head || document.body).appendChild(script);
   }
 
   function configureSidebarYoutubeEmbed() {
@@ -340,7 +299,7 @@ let disqusLoaded = false;
         <div class="first-open-copy">
           <h3>使用提醒</h3>
           <p>資料均在本地運行，請安心使用。</p>
-          <p>支援檔案類型：請私訊作者 <a href="https://t.me/tg_secbeater" target="_blank" rel="noopener noreferrer">https://t.me/tg_secbeater</a></p>
+          <p>支援檔案類型：請私訊<a href="https://t.me/tg_secbeater" target="_blank" rel="noopener noreferrer">作者</a></p>
           <p class="first-open-note">備註：若畫面仍是舊版，請使用強制重載最新版（等同 Ctrl+F5）。</p>
           <div class="first-open-actions">
             <button type="button" class="ghost-btn first-open-refresh" data-action="refresh">強制重啟</button>
@@ -593,16 +552,10 @@ let disqusLoaded = false;
 
   const {
     ensureDefaultAiPrompt,
-    ensureModelSelectPlaceholder,
-    refreshGeminiModels,
-    runGeminiAnalysis,
-    setModelCustomInputState,
-    updateAiEndpointPreview
+    copyAiPrompt
   } = createAiView({
     DEFAULT_AI_PROMPT,
-    GEMINI_ENDPOINT_DEFAULT,
     els,
-    state,
     setStatus
   });
 
@@ -667,9 +620,6 @@ let disqusLoaded = false;
 
     if (els.exportMenuToggle) {
       els.exportMenuToggle.disabled = false;
-    }
-    if (els.runAiAnalysis) {
-      els.runAiAnalysis.disabled = false;
     }
 
     const summary = result.summary;
@@ -1056,9 +1006,6 @@ function setActiveView(viewKey) {
     if (viewKey === "routine") {
       invalidateRoutineMap();
     }
-    if (viewKey === "comments") {
-      loadDisqusComments();
-    }
   }
 
   function bindEvents() {
@@ -1194,32 +1141,9 @@ function setActiveView(viewKey) {
     });
     els.exportDownload?.addEventListener("click", exportSelectedCsv);
 
-    const debouncedModelRefresh = debounce(() => {
-      refreshGeminiModels({ silent: true });
-    }, 700);
-
-    els.aiModelSelect?.addEventListener("change", () => {
-      setModelCustomInputState();
-      updateAiEndpointPreview();
+    els.copyAiPrompt?.addEventListener("click", () => {
+      copyAiPrompt();
     });
-    els.aiModelCustom?.addEventListener("input", updateAiEndpointPreview);
-
-    els.aiApiKey?.addEventListener("input", () => {
-      debouncedModelRefresh();
-    });
-    els.aiApiKey?.addEventListener("change", () => {
-      refreshGeminiModels({ silent: true });
-    });
-
-    els.aiEndpointUrl?.addEventListener("input", () => {
-      updateAiEndpointPreview();
-      debouncedModelRefresh();
-    });
-
-    els.refreshModels?.addEventListener("click", () => {
-      refreshGeminiModels({ silent: false });
-    });
-    els.runAiAnalysis?.addEventListener("click", runGeminiAnalysis);
 
     window.addEventListener("resize", () => {
       if (state.map) {
@@ -1260,17 +1184,8 @@ function setActiveView(viewKey) {
     ensureDefaultAiPrompt();
     initMapIfNeeded();
     updatePlaybackSpeedLabel();
-    ensureModelSelectPlaceholder();
-    updateAiEndpointPreview();
-    setModelCustomInputState();
     if (els.exportMenuToggle) {
       els.exportMenuToggle.disabled = true;
-    }
-    if (els.runAiAnalysis) {
-      els.runAiAnalysis.disabled = true;
-    }
-    if (String(els.aiApiKey?.value || "").trim()) {
-      refreshGeminiModels({ silent: true });
     }
     setTeleportVisible(false);
     showFirstOpenNoticeIfNeeded();

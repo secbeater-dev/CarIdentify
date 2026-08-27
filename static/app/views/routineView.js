@@ -1,17 +1,17 @@
-import { els } from "../shared/dom.js?v=20260827a";
-import { DEFAULT_ROUTINE_FILTER, MAP_DEFAULT_VIEW, ROUTINE_HOUR_OPTIONS } from "../shared/constants.js?v=20260827a";
-import { state } from "../shared/state.js?v=20260827a";
-import { createBaseMap, ensureMapHost, fitMapToLatLngs, renderEmptyMapHost } from "../shared/leaflet.js?v=20260827a";
-import { buildRoutineViewModel } from "../analysis/selectors.js?v=20260827a";
-import { escapeHtml, normalizeMapSettings, pad2 } from "../shared/utils.js?v=20260827a";
+import { els } from "../shared/dom.js?v=20260827b";
+import { DEFAULT_ROUTINE_FILTER, MAP_DEFAULT_VIEW, ROUTINE_HOUR_OPTIONS } from "../shared/constants.js?v=20260827b";
+import { state } from "../shared/state.js?v=20260827b";
+import { createBaseMap, ensureMapHost, fitMapToLatLngs, renderEmptyMapHost } from "../shared/leaflet.js?v=20260827b";
+import { buildRoutineViewModel } from "../analysis/selectors.js?v=20260827b";
+import { escapeHtml, normalizeMapSettings, pad2 } from "../shared/utils.js?v=20260827b";
 import {
   areRoutineFiltersEqual,
   formatRoutineSelectedHours,
   getRoutineFilterLabel,
   normalizeRoutineFilter
-} from "../analysis/timeFilters.js?v=20260827a";
-import { renderTable } from "./tableView.js?v=20260827a";
-import { renderPlateImageThumbnailHtml } from "./plateImageView.js?v=20260827a";
+} from "../analysis/timeFilters.js?v=20260827b";
+import { renderTable } from "./tableView.js?v=20260827b";
+import { renderPlateImageThumbnailHtml } from "./plateImageView.js?v=20260827b";
 
 let routineMarkerByKey = new Map();
 let activeRoutineKey = "";

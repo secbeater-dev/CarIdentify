@@ -1,10 +1,10 @@
-import { els } from "../shared/dom.js?v=20260827a";
-import { MAP_DEFAULT_VIEW } from "../shared/constants.js?v=20260827a";
-import { state } from "../shared/state.js?v=20260827a";
-import { createBaseMap, ensureMapHost, fitMapToLatLngs, renderEmptyMapHost } from "../shared/leaflet.js?v=20260827a";
-import { escapeHtml } from "../shared/utils.js?v=20260827a";
-import { getHotspotRows } from "../analysis/selectors.js?v=20260827a";
-import { renderTable } from "./tableView.js?v=20260827a";
+import { els } from "../shared/dom.js?v=20260827b";
+import { MAP_DEFAULT_VIEW } from "../shared/constants.js?v=20260827b";
+import { state } from "../shared/state.js?v=20260827b";
+import { createBaseMap, ensureMapHost, fitMapToLatLngs, renderEmptyMapHost } from "../shared/leaflet.js?v=20260827b";
+import { escapeHtml } from "../shared/utils.js?v=20260827b";
+import { getHotspotRows } from "../analysis/selectors.js?v=20260827b";
+import { renderTable } from "./tableView.js?v=20260827b";
 
 let hotspotMarkerByKey = new Map();
 let activeHotspotKey = "";
